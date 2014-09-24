@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 use Redis;
+use vars qw(%RAD_REQUEST %RAD_CHECK)
+
 my $redis_con;
 
 sub setUpRedisConn {
