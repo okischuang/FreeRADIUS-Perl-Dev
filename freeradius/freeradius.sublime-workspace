@@ -1,0 +1,232 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"RLM_",
+				"RLM_MODULE_OK"
+			],
+			[
+				"add",
+				"addSubsc2Set"
+			],
+			[
+				"redis",
+				"redis_con"
+			],
+			[
+				"acc",
+				"acct_status"
+			],
+			[
+				"if",
+				"ifee	Conditional if..elsif..else"
+			],
+			[
+				"RAD",
+				"RAD_REQUEST"
+			],
+			[
+				"htm",
+				"htmlspecialchars"
+			],
+			[
+				"str",
+				"  URL-encodes string"
+			],
+			[
+				"ur",
+				"urlencode"
+			],
+			[
+				"E",
+				"Encode  (module)"
+			],
+			[
+				"ran",
+				"randMember"
+			],
+			[
+				"rad",
+				"randMember"
+			],
+			[
+				"cl",
+				"clearSet"
+			],
+			[
+				"ad",
+				"addRandElem2Set"
+			],
+			[
+				"m",
+				"members"
+			],
+			[
+				"se",
+				"sep"
+			],
+			[
+				"re",
+				"redis_con"
+			]
+		]
+	},
+	"buffers":
+	[
+	],
+	"build_system": "",
+	"command_palette":
+	{
+		"height": 47.0,
+		"selected_items":
+		[
+			[
+				"Package Control: insa",
+				"Package Control: Install Package"
+			],
+			[
+				"Package Control: in",
+				"Package Control: Install Package"
+			],
+			[
+				"git",
+				"Package Control: Install Package"
+			],
+			[
+				"pa",
+				"Package Control: Discover Packages"
+			],
+			[
+				"Snippet: ",
+				"Snippet: Read File"
+			]
+		],
+		"width": 602.0
+	},
+	"console":
+	{
+		"height": 125.0
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/Users/okischuang/Documents/Dev/subsc_cache.pl",
+		"/Users/okischuang/Library/Application Support/Sublime Text 2/Packages/SublimeCodeIntel/SublimeCodeIntel.sublime-settings",
+		"/Users/okischuang/Library/Application Support/Sublime Text 2/Packages/User/Default (OSX).sublime-keymap",
+		"/Users/okischuang/Documents/Dev/redis_test.pl",
+		"/Users/okischuang/Documents/Dev/test.php",
+		"/Users/okischuang/Documents/Work/test.pl"
+	],
+	"find":
+	{
+		"height": 35.0
+	},
+	"find_in_files":
+	{
+		"height": 0.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+			"Comment",
+			"();"
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"sheets":
+			[
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 0.0
+	},
+	"input":
+	{
+		"height": 31.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.git":
+	{
+		"height": 100.0
+	},
+	"replace":
+	{
+		"height": 0.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 150.0,
+	"status_bar_visible": true
+}

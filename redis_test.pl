@@ -3,7 +3,6 @@
 use strict;
 use warnings;
 use Redis;
-use vars qw(%RAD_REQUEST %RAD_CHECK)
 
 my $redis_con;
 
@@ -106,7 +105,7 @@ sub main {
 	my $key = '168.95.179.11';
 	testFlow($key);
 
-	delSet($key);
+	#delSet($key);
 }
 
 main();
