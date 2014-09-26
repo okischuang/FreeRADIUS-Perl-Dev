@@ -14,6 +14,7 @@ use constant RLM_MODULE_UPDATED	=>	8;
 
 # define root path where we write our logs.
 my $logpath = '/var/log/radius';
+logpath("$logpath");
 # define root path where we read our configurations.
 my $confpath = '/Users/okischuang/Documents/Dev/freeradius/conf';
 # for storing redis server settings.
@@ -22,7 +23,7 @@ my %redisEnv;
 my $redis_con;
 # calling sub to set up configuration environment variables.
 setUpConfig();
-# calling sub to set up redis connection.
+# calling sub to set up redis connection. setUpRedisConn() must be called after setUpConfig().
 setUpRedisConn();
 
 sub accounting {
@@ -48,7 +49,6 @@ sub accounting {
 
 sub log_err {
 	my $errMsg = $_[0];
-	logpath("$logpath");
 	log("error","subsc_cache","$errMsg");
 }
 
