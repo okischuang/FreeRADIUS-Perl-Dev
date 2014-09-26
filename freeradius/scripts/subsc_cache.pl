@@ -5,6 +5,7 @@ use Redis;
 use Config::Std { def_sep => '=' };
 #use lib '/home/okis/perl5/lib/perl5';
 use Log::Lite qw(logpath log);
+use Data::Dumper;
 
 # constant of FreeRADIUS module returned value
 use constant RLM_MODULE_REJECT	=>	0;
@@ -19,6 +20,8 @@ logpath("$logpath");
 my $confpath = '/Users/okischuang/Documents/Dev/freeradius/conf';
 # for storing redis server settings.
 my %redisEnv;
+# hash of storing Alu7750SR global settings.
+my %aluEnv;
 # global redis connection.
 my $redis_con;
 # calling sub to set up configuration environment variables.
@@ -28,19 +31,16 @@ setUpRedisConn();
 
 sub accounting {
 	my $acct_status = $RAD_REQUEST{'Acct-Status-Type'};
-	my $key = $RAD_REQUEST{'NAS-IP-Address'};
-	my $umac = $RAD_REQUEST{'Calling-Station-Id'};
+	my $key = $RAD_REQUEST{'Calling-Station-Id'};
 
 	if ($acct_status eq 'Start') {
-		# Caching pre-auth subscriber information from Accounting packet to set in redis server.
-		if(isMemberExist($key,$umac) != 1){
-			addSubsc2Set($key,$umac);
-		}
-		return RLM_MODULE_OK;
+		# Caching pre-auth subscriber information from Accounting packet to hash in redis server.
+		return RLM_MODULE_OK if setSubscHash($key) == 1;
+		return RLM_MODULE_NOOP if setSubscHash($key) == 0;
 	} elsif ($acct_status eq 'Stop') {
 		# Clearing cached subscriber information from set in redis server.
-		removeMemFromSet($key,$umac);
-		return RLM_MODULE_OK;
+		return RLM_MODULE_OK if delKey($key) == 1;
+		return RLM_MODULE_NOOP if delKey($key) != 1;
 	} else {
 		# Do not process other types of Accounting.
 		return RLM_MODULE_NOOP;
@@ -56,6 +56,7 @@ sub setUpConfig {
 	eval {
 		# do something risky...
 		read_config "$confpath/redis.cfg" => %redisEnv;
+		read_config "$confpath/alu.cfg" => %aluEnv;
 	};
 	if ($@) {
 		# handle failure...
@@ -92,12 +93,12 @@ sub checkInput {
 }
 
 sub radiusSimulation {
+	# Generate a list of MAC Addresses into the set for simulation test.
+	genMACList2Set(20);
 	# Simulate hash value in FreeRADIUS.
-	$RAD_REQUEST{'NAS-IP-Address'} = checkInput()==1 ? $ARGV[1] : $ARGV[0];
-	$RAD_REQUEST{'Calling-Station-Id'} = checkInput()==1 ? genRandomMAC() : $ARGV[1];
-	$RAD_REQUEST{'Acct-Status-Type'} = $ARGV[2];
-
-	print "===Simulation START\n";
+	fillRADIUSVars();
+	
+	print "===MAC Cached Simulation Process START";
 	printf "NAS-IP-Address: %s | Calling-Station-Id: %s | Acct-Status-Type: %s\n", 
 		$RAD_REQUEST{'NAS-IP-Address'},$RAD_REQUEST{'Calling-Station-Id'}, $RAD_REQUEST{'Acct-Status-Type'};
 	my $ret = accounting();
@@ -105,16 +106,33 @@ sub radiusSimulation {
 		# body...
 		if ($RAD_REQUEST{'Acct-Status-Type'} eq 'Start') {
 			# body...
-			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been added into set $RAD_REQUEST{'NAS-IP-Address'}\n";
+			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been added into hash".Dumper $redis_con->hgetall($RAD_REQUEST{'Calling-Station-Id'})."\n";
 		} else {
 			# else...
-			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been removed from set $RAD_REQUEST{'NAS-IP-Address'}\n";
+			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been removed.\n";
 		}
 	} else {
 		# else...
 		print "Check if anything goes wrong!\n";
 	}
-	print "===Simulation END\n";
+	print "\n";
+	print "===MAC Cached Simulation Process END\n";
+}
+
+sub fillRADIUSVars {
+	my %test_data = $redis_con->hgetall('test_43807182c198');
+	$RAD_REQUEST{'Alc-Subsc-ID'} = $test_data{'Alc-Subsc-ID'};
+	$RAD_REQUEST{'NAS-IP-Address'} = $test_data{'NAS-IP-Address'};
+	$RAD_REQUEST{'Framed-IP-Address'} = $test_data{'Framed-IP-Address'};
+	$RAD_REQUEST{'Alc-SLA-Prof-Str'} = $test_data{'Alc-SLA-Prof-Str'};
+	$RAD_REQUEST{'Alc-Subsc-Prof-Str'} = $test_data{'Alc-Subsc-Prof-Str'};
+	$RAD_REQUEST{'ADSL-Agent-Circuit-Id'} = $test_data{'ADSL-Agent-Circuit-Id'};
+	$RAD_REQUEST{'Acct-Start-Time'} = $test_data{'Acct-Start-Time'};
+	$RAD_REQUEST{'Acct-Session-Id'} = $test_data{'Acct-Session-Id'};
+	$RAD_REQUEST{'NAS-Port'} = $test_data{'NAS-Port'};
+	$RAD_REQUEST{'NAS-Port-Id'} = $test_data{'NAS-Port-Id'};
+	$RAD_REQUEST{'Acct-Status-Type'} = $test_data{'Acct-Status-Type'};
+	$RAD_REQUEST{'Calling-Station-Id'} = $redis_con->srandmember('rand_mac_list');
 }
 
 sub testFlow {
@@ -160,7 +178,8 @@ sub addSubsc2Set {
 
 sub genRandomMAC {
 	my $sep = $_[0];
-	die "Too many arguments." if @_ > 1;
+	my $case = $_[1];
+	die "Too many arguments." if @_ > 2;
 	$sep = '' if !defined($_[0]);
 	my @chars = ('a'..'f','0'..'9');
 	my $mac = '';
@@ -170,12 +189,32 @@ sub genRandomMAC {
 			my $a = $chars[rand(@chars)];
 			my $b = $chars[rand(@chars)];
 			$seg = "$a$b";
-			$seg = uc($seg);
+			$seg = uc($seg) if $case eq 'uc';
+			$seg = lc($seg) if $case eq 'lc';
 		}
 		$mac .= $seg if $i==1;
-		$mac .= "$sep-$seg" if $i>1;
+		$mac .= "$sep$seg" if $i>1;
 	}
 	return $mac;
+}
+
+sub genMACList2Set {
+	my $num = $_[0];
+	my $key = 'rand_mac_list';
+	eval {
+		# do something risky...
+		for(my $i=0;$i<$num;$i++) {
+			print "MAC: ".genRandomMAC('','lc')."\n";
+			$redis_con->sadd($key, genRandomMAC('','lc'));	
+		}
+		return 1;
+	};
+	if ($@) {
+		# handle failure...
+		log_err("$@");
+		return 0;
+	}
+	
 }
 
 sub getRandomMember {
@@ -201,7 +240,7 @@ sub removeMemFromSet {
 	return 1 if $redis_con->srem($key,$member) == 1;
 }
 
-sub delSet {
+sub delKey {
 	return 0 if @_ != 1;
 	my $key = $_[0];
 	return 1 if $redis_con->del($key) == 1;
@@ -214,10 +253,30 @@ sub isMemberExist {
 	return 1 if $redis_con->sismember($key,$member) == 1;
 }
 
+sub setSubscHash {
+	return 0 if @_ != 1;
+	my $key = $_[0];
+	eval {
+		# do something risky...
+		foreach my $attr ( keys %{$aluEnv{'CachedAVP'}}) {
+			my $ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr});
+			#print "add $attr ok." if $ret == 1;
+			print "add $attr fail." if $ret != 1;
+		}
+	};
+	if ($@) {
+		# handle failure...
+		log_err("$@");
+		return 0;
+	}
+	print Dumper $redis_con->hgetall($key);
+	return 1;
+}
+
 ###### For Test #######
 my %RAD_REQUEST;
 my %RAD_CHECK;
-die "INPUT: -r[random MAC]|KEY|MAC[must give without -r]|Acct-Status-Type\n" if scalar @ARGV < 3;
+#die "INPUT: -r[random MAC]|KEY|MAC[must give without -r]|Acct-Status-Type\n" if scalar @ARGV < 3;
 radiusSimulation();
 #######################
 
