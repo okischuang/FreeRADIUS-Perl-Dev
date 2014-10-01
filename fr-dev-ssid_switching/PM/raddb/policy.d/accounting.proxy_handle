@@ -1,0 +1,116 @@
+#
+#  Identify which accounting packet need to be sent to Dispatcher.
+#  Also, identify which packet should be logout signal from WEB server.
+#  In addition, we should find out which one is going to do CoA Redirect to fulfill Session-Timeout
+#
+
+alu_forward_prof = CHT_SLA
+alu_redirect_prof = CHT_SLA_REDIR
+
+accounting.gigawords {
+	if(!"%{Acct-Input-Gigawords}") {
+		update request {
+			Acct-Input-Gigawords = 0
+		}
+	}
+	if(!"%{Acct-Output-Gigawords}") {
+		update request {
+			Acct-Output-Gigawords = 0
+		}
+	}
+}
+
+#
+#   Identify which accouting packet is real validate one that user have while surfing Internet.
+#
+#   Scenario 		| Acct-Status-Type	| User-Name | Alc-Subsc-Prof-Str
+# -------------------------------------------------------------------------------
+#   DHCP Ack(Pre-Auth)		Start 		  UMAC    	RDT-SLA-Prof	
+#   Login(CoA)			Stop 		  UMAC	  	RDT-SLA-Prof	
+#   Login(CoA)			Start 		  UNAME	  	FWD-SLA-Prof *
+#   Active Logout(CoA)		Stop 		  UNAME	  	FWD-SLA-Prof *	
+#   Inactive Logout(ITO/STO)	Stop 		  UNAME	  	FWD-SLA-Prof *	
+#   After Logout(Pre-Auth)	Start 		  UMAC    	RDT-SLA-Prof	
+#   After Logout(Pre-Auth)	Stop 		  UMAC    	RDT-SLA-Prof	
+#   CoA Redirect(WEB)		Stop		  weblogout	N/A
+#   CoA Redirect(EAPSIM)	Stop		  disconnect	N/A
+#
+accounting.handle {
+	switch "%{Acct-Status-Type}" {
+		case Start {
+			if("%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_forward_prof}"){
+				NAS_Cvrt
+				if("%{client:region}"){
+                                        update control {
+                                                Proxy-To-Realm := "%{client:region}_dispatcher"
+                                        }
+                                }
+                                else{
+                                        update control {
+                                                Proxy-To-Realm := North_dispatcher
+                                        }
+                                }	
+				detail
+			}
+			elsif("%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_redirect_prof}"){
+				
+			}
+			
+		}
+		case Interim-Update {
+			if("%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_forward_prof}"){
+				# CoA Redirect subscriber to fulfill Session-Timeout
+				CoA
+			}	
+			detail
+		}
+		case Stop {
+			# 
+			#  Only if "%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_forward_prof}" 
+			#  In this time, PROXY to corresponding Dispatcher
+			#
+			if("%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_forward_prof}"){
+				accounting.gigawords
+				#  Rewrite Acct-Terminate-Cause when it is Admin-Reset 
+				if("%{Acct-Terminate-Cause}" == "Admin-Reset"){
+					if("%{Acct-Session-Time}" >= 14400){
+						update request {
+							Acct-Terminate-Cause := Session-Timeout
+						}
+					}
+					else{
+						update request {
+							Acct-Terminate-Cause := User-Request
+						}
+					}
+				}
+				if("%{Acct-Terminate-Cause}" == "Lost-Service"){
+					update request {
+						Acct-Terminate-Cause := Idle-Timeout
+					}
+				}
+				NAS_Cvrt
+                                if("%{client:region}"){
+                                        update control {
+                                                Proxy-To-Realm := "%{client:region}_dispatcher"
+                                        }
+                                }
+                                else{
+                                        update control {
+                                                Proxy-To-Realm := North_dispatcher
+                                        }
+                                }
+				detail
+                        }
+			if("%{User-Name}" == weblogout){
+				# CoA Redirect subscriber <uam Logout>
+				CoA
+			}
+			if("%{User-Name}" == disconnect) {
+				# Disconnect subscriber <eap-sim Logout>
+				CoA
+			}
+			
+		}	
+	}
+}
