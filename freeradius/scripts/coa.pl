@@ -1,7 +1,9 @@
 ############################################################################
-# 									   #								 
+# 									   									   #								 
 # Script of sending RADIUS CoA request to CoA server to change SLA profile #
-# 									   #
+# This version if specific to CHT Wi-Fi Dispatcher. It can only executed   #
+# while in section "post_auth" and only support forwarding function.       #
+#
 ############################################################################
 use strict;
 use vars qw(%RAD_REQUEST %RAD_REPLY %RAD_CHECK);
@@ -43,9 +45,8 @@ my %redisEnv;
 my %qos;
 my %coa;
 
-
-# Load FreeRADIUS attributes from specified directory.
-Authen::Radius->load_dictionary('/hinet/freeradius/share/freeradius/dictionary');
+setUpConfig();
+setUpRedisConn();
 
 sub log_err {
 	my $errMsg = $_[0];
@@ -59,11 +60,44 @@ sub setUpConfig {
 		read_config "$confpath/redis.cfg" => %redisEnv;
 		read_config '/hinet/freeradius/etc/raddb/perl/conf/wispr_qos.cfg' => %qos;
 		read_config '/hinet/freeradius/etc/raddb/perl/conf/alu.cfg' => %coa;
+		# Load FreeRADIUS attributes from specified directory.
+		Authen::Radius->load_dictionary('/hinet/freeradius/share/freeradius/dictionary');
 	};
 	if ($@) {
 		# handle failure...
 		log_err("$@");
 	}
+}
+
+sub setUpRedisConn {
+	my $s1_ip = $redisEnv{'Server1'}{'host'};
+	my $s1_port = $redisEnv{'Server1'}{'port'};
+	my $s1_reconn = $redisEnv{'Server1'}{'reconnect'};
+	eval {
+		# try to get a connection from Redis server.
+		$redis_con = Redis->new(
+			sever => "$s1_ip:$s1_port",
+			reconnect => 3,
+			name => 'conn_subsc_cache',
+		);
+	};
+	if ($@) {
+		# handle failure...
+		log_err("$@");
+		# try to connect Server2
+	}
+}
+
+sub getAlcSubscID {
+	my $key = $_[0];
+	my $subscID;
+	$subscID = $redis_con->hget($key,'Alc-Subsc-ID');
+	return $subscID;
+}
+
+sub isKeyExists {
+	my $key = $_[0];
+	return 1 if $redis_con->exists($key) == 1;
 }
 
 sub getAuthenRadiusInstance {
@@ -84,6 +118,8 @@ sub getAuthenRadiusInstance {
 
 # Function to handle post_auth
 sub post_auth {
+	# check if MAC address exists in Redis.
+	return RLM_MODULE_NOOP unless isKeyExists == 1;
 	my $ret = 0;
 	$ret = &forwarding;
 	if($ret == 0){return RLM_MODULE_NOOP;}
@@ -101,6 +137,7 @@ sub post_auth {
 	}
 	else{return RLM_MODULE_NOOP;}
 }
+
 sub accounting {
 	if($RAD_REQUEST{'User-Name'} eq 'weblogout') {
 		my $ret = 0;
@@ -173,32 +210,23 @@ sub forwarding {
             return 0;
     }
 
+    # Piecing NAS-IP-Address and port together into the host address of CoA server.
     my $host = "$RAD_REQUEST{'NAS-IP-Address'}:$port";
     # New a RADIUS object.
     my $r = getAuthenRadiusInstance($host,$secret);
+    return 0 if $r == 0;
+
+    # Check if %qos exists or not?
 	if(!%qos) {
 		log_err("lack of qos config");
 		return 0;
 	}
-	my $realm_section;
-	if($RAD_REQUEST{'FreeRADIUS-WiFi-Realm'}){
-        $realm_section = $RAD_REQUEST{'FreeRADIUS-WiFi-Realm'};
-    }
-	else{
-		if($RAD_REQUEST{'User-Name'} =~ /(.+)\/(.+)/) {
-			$realm_section = $1;
-		}
-		elsif($RAD_REQUEST{'User-Name'} =~ /(.+)@(.+)/) {
-			$realm_section = $2;
-		}
-		else{
-			$realm_section = 'Default';
-		}
-	}
-	my ($burst, $upRate, $downRate, $ito, $sto, $fake_sto, $li_Dest);
+
+	my $realm_section = $RAD_REQUEST{'FreeRADIUS-WiFi-Realm'};
+	my ($subscID, $burst, $upRate, $downRate, $ito, $sto, $fake_sto, $li_Dest);
 	$burst = $qos{Global}{burst};	
 	$li_Dest = $qos{Global}{li_dest};
-	$fake_sto = 86400; # use of keeping IP of subscriber host on GW in a day.
+	
 	if($qos{"$realm_section"}{override} eq 1){
 		$upRate = POSIX::floor($qos{"$realm_section"}{up});
 		$downRate = POSIX::floor($qos{"$realm_section"}{down});
@@ -206,10 +234,13 @@ sub forwarding {
 		$sto = $qos{"$realm_section"}{sto};
 	}
 	else {
+		# divide 1k with bandwidth up/down representing as mbps 
 		$upRate = POSIX::floor($RAD_REPLY{'WISPr-Bandwidth-Max-Up'}/1000);
 		$downRate = POSIX::floor($RAD_REPLY{'WISPr-Bandwidth-Max-Down'}/1000);
 		$ito = $RAD_REPLY{'Idle-Timeout'}; 
 		$sto = $RAD_REPLY{'Session-Timeout'};
+		# if either Up or Down bandwidth limit value is missing, we try to find out the value corresponding its realm.
+		# we finally pick Deafult qos value if qos value of the realm can't be found.
 		if($upRate == 0 || $downRate == 0) {
 			if($qos{"$realm_section"}{up} ne ""){
 				$upRate = POSIX::floor($qos{"$realm_section"}{up});      
@@ -224,53 +255,51 @@ sub forwarding {
 				$upRate = POSIX::floor($qos{"Default"}{down});
 			}
 		}
+		# do the same thing with the timeout control parameters.
 		if($ito == 0 || $sto == 0) {
 			if($qos{"$realm_section"}{ito} ne ""){
-                                $ito = $qos{"$realm_section"}{ito};
-                        }
-                        else{
+            	$ito = $qos{"$realm_section"}{ito};
+            }
+            else{
 				$ito = $qos{Default}{ito};
-                        }
-                        if($qos{"$realm_section"}{down} ne ""){
-                                $sto = $qos{"$realm_section"}{sto};
-                        }
-                        else{
-                        	$sto = $qos{Default}{sto};
-                        }
+            }
+            if($qos{"$realm_section"}{down} ne ""){
+                    $sto = $qos{"$realm_section"}{sto};
+            }
+            else{
+            	$sto = $qos{Default}{sto};
+            }
 		}
 	}
 
 	$upRate = "i:p:1:pir=$upRate,mbs=$burst";
 	$downRate = "e:q:1:pir=$downRate";
-
+	$subscID = getAlcSubscID();
 	
 	$r->add_attributes (
-			{ Name => 'NAS-Port-Id', Value => $RAD_REQUEST{'NAS-Port-Id'}},
-			{ Name => 'NAS-Port', Value => $RAD_REQUEST{'NAS-Port'}},
-			{ Name => 'Framed-IP-Address', Value => $RAD_REQUEST{'Framed-IP-Address'}},
-			{ Name => 'User-Name', Value => $RAD_REQUEST{'User-Name'}},
-			{ Name => 'Alc-SLA-Prof-Str', Value => $fwdSlaProf},
-			{ Name => 'Alc-Subscriber-QoS-Override', Value => $upRate},
-			{ Name => 'Alc-Subscriber-QoS-Override', Value => $downRate},
-			{ Name => 'Acct-Interim-Interval', Value => $sto},
-			{ Name => 'Alc-Relative-Session-Timeout', Value => $fake_sto},
-			{ Name => 'Idle-Timeout', Value => $ito}
-			);
+		{ Name => 'Alc-Subsc-ID', Value => $subscID},
+		{ Name => 'NAS-Port', Value => $RAD_REQUEST{'NAS-Port'}},
+		{ Name => 'User-Name', Value => $RAD_REQUEST{'User-Name'}},
+		{ Name => 'Alc-SLA-Prof-Str', Value => $fwdSlaProf},
+		{ Name => 'Alc-Subscriber-QoS-Override', Value => $upRate},
+		{ Name => 'Alc-Subscriber-QoS-Override', Value => $downRate},
+		{ Name => 'Alc-Relative-Session-Timeout', Value => $sto},
+		{ Name => 'Idle-Timeout', Value => $ito}
+	);
 	if(ref($RAD_REPLY{'Class'}) eq 'ARRAY') {
-                foreach (@{$RAD_REPLY{'Class'}} ) {
-                        $r->add_attributes (
-                                { Name => 'Class', Value => $_}
-                        );
-                }
-        }
-        else{
+        foreach (@{$RAD_REPLY{'Class'}} ) {
                 $r->add_attributes (
-                        { Name => 'Class', Value => $RAD_REPLY{'Class'}}
+                        { Name => 'Class', Value => $_}
                 );
         }
+    }
+    else{
+        $r->add_attributes (
+                { Name => 'Class', Value => $RAD_REPLY{'Class'}}
+        );
+    }
 
 	# if internal attr "Is-LI-Enable" exists, add LI related attr.
-	#&radiusd::radlogradiusd::radlog(L_DBG, "LI DEST: $li_Dest\n");
 	my $sent_attrs = "";
 	for $a ($r->get_attributes()) {
 		if($sent_attrs ne ""){
@@ -287,7 +316,7 @@ sub forwarding {
 
 	if($type == 44){
 		if($RAD_REPLY{'Alc-LI-Action'}) {
-			my $li_input = "NAS-Port-Id=$RAD_REQUEST{'NAS-Port-Id'},Framed-IP-Address=$RAD_REQUEST{'Framed-IP-Address'},Alc-LI-Action=$RAD_REPLY{'Alc-LI-Action'},Alc-LI-Destination=$li_Dest";
+			my $li_input = "Alc-Subsc-ID=$subscID,Alc-LI-Action=$RAD_REPLY{'Alc-LI-Action'},Alc-LI-Destination=$li_Dest";
 			log("coa", "SENT-COA-LI", "$RAD_REQUEST{'Calling-Station-Id'}", "$li_input");
 			my $li_output = &call_radclient($li_input,$host,"coa","$secret");
 			if($li_output == 1) {
@@ -306,13 +335,13 @@ sub forwarding {
 	elsif($type == 45){
 		my $response_attrs = "";
 		for $a ($r->get_attributes()) {
-                        if($response_attrs ne ""){
-                                $response_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
-                        }
-                        else{
-                                $response_attrs = "$a->{'Name'}=$a->{'Value'}"
-                        }
-                }
+	        if($response_attrs ne ""){
+	                $response_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
+	        }
+	        else{
+	                $response_attrs = "$a->{'Name'}=$a->{'Value'}"
+	        }
+	    }
 		log("coa", "RECV-COA-FWD-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$response_attrs");
 		return 2;
 	}
@@ -321,7 +350,6 @@ sub forwarding {
 		return 3;
 	}
 }
-
 sub redirecting {
 	if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
                 log("coa","COA-FAIL","NAS-IP-Address Not Found");
@@ -373,7 +401,6 @@ sub redirecting {
 		return 3;
 	}
 }	
-
 sub disconnect {
 	if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
                 log("coa","COA-FAIL","NAS-IP-Address Not Found");
@@ -421,8 +448,6 @@ sub disconnect {
 		return 3;
 	}
 }
-
-
 #
 # Parameter: $input, $hot, $type, $secret
 #

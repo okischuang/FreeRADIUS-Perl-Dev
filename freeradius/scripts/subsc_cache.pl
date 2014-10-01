@@ -121,6 +121,7 @@ sub radiusSimulation {
 
 sub fillRADIUSVars {
 	my %test_data = $redis_con->hgetall('test_43807182c198');
+	
 	$RAD_REQUEST{'Alc-Subsc-ID'} = $test_data{'Alc-Subsc-ID'};
 	$RAD_REQUEST{'NAS-IP-Address'} = $test_data{'NAS-IP-Address'};
 	$RAD_REQUEST{'Framed-IP-Address'} = $test_data{'Framed-IP-Address'};
