@@ -1,0 +1,125 @@
+# -*- text -*-
+#
+#  $Id$
+
+#  Persistent, embedded Perl interpreter.
+#
+perl {
+	#
+	#  The Perl script to execute on authorize, authenticate,
+	#  accounting, xlat, etc.  This is very similar to using
+	#  'rlm_exec' module, but it is persistent, and therefore
+	#  faster.
+	#
+	module = ${confdir}/example.pl
+
+	#
+	#  The following hashes are given to the module and
+        #  filled with value-pairs (Attribute names and values)
+	#
+	#  %RAD_CHECK		Check items
+	#  %RAD_REQUEST		Attributes from the request
+	#  %RAD_REPLY		Attributes for the reply
+	# 
+	#  The return codes from functions in the perl_script
+	#  are passed directly back to the server.  These
+	#  codes are defined in doc/configurable_failover,
+	#  src/include/modules.h (RLM_MODULE_REJECT, etc),
+	#  and are pre-defined in the 'example.pl' program
+	#  which is included.
+	#		
+
+	#
+	#  List of functions in the module to call.
+	#  Uncomment and change if you want to use function
+	#  names other than the defaults.
+	#
+	#func_authenticate = authenticate
+	#func_authorize = authorize
+	#func_preacct = preacct
+	#func_accounting = accounting
+	#func_checksimul = checksimul
+	#func_pre_proxy = pre_proxy
+	#func_post_proxy = post_proxy
+	#func_post_auth = post_auth
+	#func_recv_coa = recv_coa
+	#func_send_coa = send_coa
+	#func_xlat = xlat
+	#func_detach = detach
+
+	#
+	#  Uncomment the following lines if you wish
+	#  to use separate functions for Start and Stop
+	#  accounting packets. In that case, the 
+	#  func_accounting function is not called.
+	#
+	#func_start_accounting = accounting_start
+	#func_stop_accounting = accounting_stop
+}
+perl ito_substract {
+        module = ${confdir}/perl/scripts/idle_timeout.pl
+        func_stop_accounting = accounting_stop
+}
+perl perl_cui_handle {
+        module = ${confdir}/perl/scripts/cui_handle.pl
+        func_accounting = accounting
+}
+perl perl_delClass {
+        module = ${confdir}/perl/scripts/deleteClass.pl
+        func_post_auth = post_auth
+	func_accounting = accounting
+}
+perl perl_log {
+	module = ${confdir}/perl/scripts/perl_log.pl
+	func_authorize = authorize
+	func_accounting = accounting
+	#func_pre_proxy = pre_proxy
+	func_post_proxy = post_proxy
+	func_post_auth = post_auth
+	#func_start_accounting = accounting_start
+        #func_stop_accounting = accounting_stop
+}
+perl perl_parseCL {
+	module = ${confdir}/perl/scripts/ParseCL.pl
+	func_post_auth = post_auth
+}
+perl perl_add_roamout_tag {
+	module = ${confdir}/perl/scripts/roamout_add_tag.pl
+	func_authorize = authorize
+        func_accounting = accounting
+}
+perl perl_check_project_prefix {
+	module = ${confdir}/perl/scripts/check_project_prefix.pl
+	func_authorize = authorize
+}
+perl perl_set_realm {
+	module = ${confdir}/perl/scripts/set_realm.pl
+	func_authorize = authorize
+	func_post_auth = post_auth
+	func_preacct = preacct
+}
+perl perl_vibo_auth{
+	module = ${confdir}/perl/scripts/vibo_auth.pl
+	func_authorize = authorize
+}
+perl perl_bypass{
+        module = ${confdir}/perl/scripts/bypass.pl
+        func_authorize = authorize
+}
+perl perl_replicate_acct{
+	module = ${confdir}/perl/scripts/replicate_acct.pl
+	func_accounting = accounting
+}
+perl perl_nat_user {
+        module = ${confdir}/perl/scripts/nat_user.pl
+        func_post_auth = post_auth
+}
+perl perl_proxy_auth_check {
+        module = ${confdir}/perl/scripts/proxy_auth_check.pl
+        func_authorize = authorize
+        func_post_auth = post_auth
+}
+perl perl_coa_eapsim {
+	module = ${confdir}/perl/scripts/coa.pl
+	func_post_auth = post_auth
+}

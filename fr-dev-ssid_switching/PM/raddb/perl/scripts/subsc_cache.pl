@@ -1,3 +1,6 @@
+############################################################################################
+# Script for processing pre-auth subscriber information and caching into the Redis server. #
+############################################################################################
 use strict;
 use warnings;
 use vars qw(%RAD_REQUEST %RAD_CHECK);

@@ -40,7 +40,13 @@ use constant	L_ACCT=>  6;
 my $logdir = '/hinet/freeradius/var/log/radius/perl';
 logpath("$logdir");
 
-# Open and read the config file.
+# define root path where we read our configurations.
+my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
+
+# define FreeRADIUS dictionary directory.
+my $dictpath = '/hinet/freeradius/share/freeradius';
+
+# define global hash variables for storing config
 my %redisEnv;
 my %qos;
 my %coa;
@@ -50,7 +56,6 @@ setUpRedisConn();
 
 sub log_err {
 	my $errMsg = $_[0];
-	logpath("$logdir");
 	log("error","coa","$errMsg");
 }
 
@@ -58,10 +63,10 @@ sub setUpConfig {
 	eval {
 		# do something risky...
 		read_config "$confpath/redis.cfg" => %redisEnv;
-		read_config '/hinet/freeradius/etc/raddb/perl/conf/wispr_qos.cfg' => %qos;
-		read_config '/hinet/freeradius/etc/raddb/perl/conf/alu.cfg' => %coa;
+		read_config "$confpath/wispr_qos.cfg" => %qos;
+		read_config "$confpath/alu.cfg" => %coa;
 		# Load FreeRADIUS attributes from specified directory.
-		Authen::Radius->load_dictionary('/hinet/freeradius/share/freeradius/dictionary');
+		Authen::Radius->load_dictionary("$dictpath/dictionary");
 	};
 	if ($@) {
 		# handle failure...

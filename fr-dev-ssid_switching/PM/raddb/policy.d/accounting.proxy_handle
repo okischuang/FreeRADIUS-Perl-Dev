@@ -26,10 +26,10 @@ accounting.gigawords {
 #   Scenario 		| Acct-Status-Type	| User-Name | Alc-Subsc-Prof-Str
 # -------------------------------------------------------------------------------
 #   DHCP Ack(Pre-Auth)		Start 		  UMAC    	RDT-SLA-Prof	
-#   Login(CoA)			Stop 		  UMAC	  	RDT-SLA-Prof	
-#   Login(CoA)			Start 		  UNAME	  	FWD-SLA-Prof *
+#   Login(CoA)				Stop 		  UMAC	  	RDT-SLA-Prof	
+#   Login(CoA)				Start 		  UNAME	  	FWD-SLA-Prof *
 #   Active Logout(CoA)		Stop 		  UNAME	  	FWD-SLA-Prof *	
-#   Inactive Logout(ITO/STO)	Stop 		  UNAME	  	FWD-SLA-Prof *	
+#   Inactive Logout(ITO/STO)Stop 		  UNAME	  	FWD-SLA-Prof *	
 #   After Logout(Pre-Auth)	Start 		  UMAC    	RDT-SLA-Prof	
 #   After Logout(Pre-Auth)	Stop 		  UMAC    	RDT-SLA-Prof	
 #   CoA Redirect(WEB)		Stop		  weblogout	N/A
@@ -53,7 +53,8 @@ accounting.handle {
 				detail
 			}
 			elsif("%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_redirect_prof}"){
-				
+				# calling perl module to cache pre-auth subscriber information
+				perl_subsc_cache
 			}
 			
 		}
@@ -90,18 +91,22 @@ accounting.handle {
 					}
 				}
 				NAS_Cvrt
-                                if("%{client:region}"){
-                                        update control {
-                                                Proxy-To-Realm := "%{client:region}_dispatcher"
-                                        }
-                                }
-                                else{
-                                        update control {
-                                                Proxy-To-Realm := North_dispatcher
-                                        }
-                                }
-				detail
+                if("%{client:region}"){
+                        update control {
+                                Proxy-To-Realm := "%{client:region}_dispatcher"
                         }
+                }
+                else{
+                        update control {
+                                Proxy-To-Realm := North_dispatcher
+                        }
+                }
+				detail
+            }
+			elsif("%{Alc-SLA-Prof-Str}" == "%{config:policy.alu_redirect_prof}"){
+				# calling perl module to cache pre-auth subscriber information
+				perl_subsc_cache
+			}
 			if("%{User-Name}" == weblogout){
 				# CoA Redirect subscriber <uam Logout>
 				CoA
