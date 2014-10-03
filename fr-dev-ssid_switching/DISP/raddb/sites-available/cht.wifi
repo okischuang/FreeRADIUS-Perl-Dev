@@ -760,6 +760,9 @@ post-auth {
         #### if gateway is alcatel-lucent, it doesn't allow giving Access-Accept with *Session-Timeout* and *Alc-Relative-Session-Timeout* at the same time.
         if("%{client:Gateway-Type}" == "ALU") {
 			if("%{client:Is-NAT}" == "Yes"){
+				update control {
+					Is-NAT := "Yes"
+				}
                 ## if this onfig *Is-NAT* of the client is set to 'Yes' that means it turns on NAT mode. Then we apply policy below.
                 alu.nat.eapsim.reply
             }
