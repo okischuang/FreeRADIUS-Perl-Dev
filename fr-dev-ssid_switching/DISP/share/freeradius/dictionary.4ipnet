@@ -1,0 +1,18 @@
+VENDOR          4ipnet                                  31932
+
+BEGIN-VENDOR    4ipnet
+
+ATTRIBUTE       4ipnet-Byte-Amount                      10      integer
+ATTRIBUTE       4ipnet-MaxByteIn                        11      integer
+ATTRIBUTE       4ipnet-MaxByteOut                       12      integer
+ATTRIBUTE       4ipnet-Byte-Amount-4GB                  20      integer
+ATTRIBUTE       4ipnet-MaxByteIn-4GB                    21      integer
+ATTRIBUTE       4ipnet-MaxByteOut-4GB                   22      integer
+ATTRIBUTE       4ipnet-Http-User-Agent                  31      string
+ATTRIBUTE       4ipnet-Auth-Method                      32      string
+ATTRIBUTE       4ipnet-Current-VLAN-ID                  33      integer
+ATTRIBUTE       4ipnet-Current-Location-ID              34      string
+ATTRIBUTE       4ipnet-Service-Zone-Name                35      string
+
+END-VENDOR      4ipnet
+

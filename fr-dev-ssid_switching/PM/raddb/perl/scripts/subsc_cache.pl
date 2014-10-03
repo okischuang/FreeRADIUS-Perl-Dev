@@ -97,7 +97,7 @@ sub checkInput {
 
 sub radiusSimulation {
 	# Generate a list of MAC Addresses into the set for simulation test.
-	genMACList2Set(20);
+	#genMACList2Set(20);
 	# Simulate hash value in FreeRADIUS.
 	fillRADIUSVars();
 	

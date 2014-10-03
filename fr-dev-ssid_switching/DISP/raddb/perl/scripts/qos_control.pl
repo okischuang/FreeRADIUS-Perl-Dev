@@ -24,14 +24,16 @@ use constant	RLM_MODULE_NUMCODES=>  9;#  /* How many return codes there are */
 
 # Set up logfile directory
 # For test: /var/log/radius
-# For Prod: /hinet/freeradius/var/log/radius/perl
 my $logdir = '/var/log/radius';
+# For Prod: /hinet/freeradius/var/log/radius/perl
+#my $logdir = '/hinet/freeradius/var/log/radius/perl';
 logpath("$logdir");
 
 # define root path where we read our configurations.
 # For Test: /Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf
-# For Prod: /hinet/freeradius/etc/raddb/perl/conf
 my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf';
+# For Prod: /hinet/freeradius/etc/raddb/perl/conf
+#my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
 
 # define global hash variables for storing config
 my %qos;

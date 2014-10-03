@@ -1,0 +1,17 @@
+# -*- text -*-
+# Copyright (C) 2011 The FreeRADIUS Server project and contributors
+##############################################################################
+#
+#       jradius VSAs.  See http://jradius.org
+#
+#       $Id$
+#
+##############################################################################
+
+VENDOR          CHTEL                           10000
+
+BEGIN-VENDOR    CHTEL
+
+ATTRIBUTE       CHTEL-OtherArea-Access-ID                       1       string
+ATTRIBUTE       CHTEL-WISP-Carrier-Code                         2       string
+

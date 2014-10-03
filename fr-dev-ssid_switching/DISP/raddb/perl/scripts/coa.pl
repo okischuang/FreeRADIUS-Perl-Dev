@@ -36,12 +36,18 @@ use constant	L_ERR=>   4;
 use constant	L_PROXY=> 5;
 use constant	L_ACCT=>  6;
 
-# Set up logfile directory 
-my $logdir = '/hinet/freeradius/var/log/radius/perl';
+# Set up logfile directory
+# For test: /var/log/radius
+my $logdir = '/var/log/radius';
+# For Prod: /hinet/freeradius/var/log/radius/perl
+#my $logdir = '/hinet/freeradius/var/log/radius/perl';
 logpath("$logdir");
 
 # define root path where we read our configurations.
-my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
+# For Test: /Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf
+my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf';
+# For Prod: /hinet/freeradius/etc/raddb/perl/conf
+#my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
 
 # define FreeRADIUS dictionary directory.
 my $dictpath = '/hinet/freeradius/share/freeradius';
@@ -53,6 +59,56 @@ my %coa;
 
 setUpConfig();
 setUpRedisConn();
+
+#### Testing Block ####
+use Redis;
+use Data::Dumper;
+my %RAD_REQUEST;
+my %RAD_REPLY;
+my %RAD_CHECK;
+my %redisEnv;
+# global redis connection.
+my $redis_con;
+
+setUpRedisConn();
+radiusSimulation();
+
+sub fillRADIUSVars {
+	%RAD_REQUEST = $redis_con->hgetall('RAD_REQUEST_AUTH_EAP');
+	%RAD_CHECK = $redis_con->hgetall('RAD_CHECK');
+}
+sub printDebugInfo {
+	print "Session-Timeout: $RAD_REPLY{'Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+	print "Alc-Relative-Session-Timeout: $RAD_REPLY{'Alc-Relative-Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+	print "Idle-Timeout: $RAD_REPLY{'Idle-Timeout'}\n";
+	print "WISPr-Bandwidth-Max-Up: $RAD_REPLY{'WISPr-Bandwidth-Max-Up'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+	print "WISPr-Bandwidth-Max-Down: $RAD_REPLY{'WISPr-Bandwidth-Max-Down'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+	print "Alc-Subscriber-QoS-Override: $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[0]\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+	print "Alc-Subscriber-QoS-Override: $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[1]\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+	print "Framed-Pool: $RAD_REPLY{'Framed-Pool'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
+	print "Alc-SLA-Prof-Str: $RAD_REPLY{'Alc-SLA-Prof-Str'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
+	print "Alc-Subsc-Prof-Str: $RAD_REPLY{'Alc-Subsc-Prof-Str'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
+}
+sub radiusSimulation {
+	# Simulate hash value in FreeRADIUS.
+	fillRADIUSVars();
+	
+	print "===QoS_control Simulation Process START";
+	printf "NAS-IP-Address: %s | Calling-Station-Id: %s | User-Name: %s\n", 
+		$RAD_REQUEST{'NAS-IP-Address'},$RAD_REQUEST{'Calling-Station-Id'}, $RAD_REQUEST{'User-Name'};
+	my $ret = post_auth();
+	if($ret == 2) {
+		print "CoA succeeded!\n";
+	}
+	else {
+		# else...
+		print "Check if anything goes wrong!\n";
+	}
+	print "\n";
+	print "===QoS_control Simulation Process END\n";
+}
+#### Testing Block ####
+
 
 sub log_err {
 	my $errMsg = $_[0];
@@ -102,7 +158,15 @@ sub getAlcSubscID {
 
 sub isKeyExists {
 	my $key = $_[0];
+	$key = normalizeMAC($key);
 	return 1 if $redis_con->exists($key) == 1;
+}
+
+sub normalizeMAC {
+	my $macAddr = $_[0];
+	if($macAddr =~ /([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})/) {
+		$macAddr = lc("$1$2$3$4$5$6");
+	}
 }
 
 sub getAuthenRadiusInstance {
@@ -124,7 +188,7 @@ sub getAuthenRadiusInstance {
 # Function to handle post_auth
 sub post_auth {
 	# check if MAC address exists in Redis.
-	return RLM_MODULE_NOOP unless isKeyExists == 1;
+	return RLM_MODULE_NOOP unless isKeyExists($RAD_REQUEST{'Calling-Station-Id'}) == 1;
 	my $ret = 0;
 	$ret = &forwarding;
 	if($ret == 0){return RLM_MODULE_NOOP;}
