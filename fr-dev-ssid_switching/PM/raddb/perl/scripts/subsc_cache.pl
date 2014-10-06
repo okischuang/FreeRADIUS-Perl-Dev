@@ -105,7 +105,7 @@ sub setUpRedisConn {
 	eval {
 		# try to get a connection from Redis server.
 		$redis_con = Redis->new(
-			sever => "$s1_ip:$s1_port",
+			server => "$s1_ip:$s1_port",
 			reconnect => 3,
 			name => 'conn_subsc_cache',
 		);
