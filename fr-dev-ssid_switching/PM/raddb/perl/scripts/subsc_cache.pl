@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use vars qw(%RAD_REQUEST %RAD_CHECK);
 use Redis;
+use Authen::Radius;
 use Config::Std { def_sep => '=' };
 #use lib '/home/okis/perl5/lib/perl5';
 use Log::Lite qw(logpath log);
@@ -16,15 +17,30 @@ use constant RLM_MODULE_OK	=>		2;
 use constant RLM_MODULE_NOOP	=>	7;
 use constant RLM_MODULE_UPDATED	=>	8;
 
-# define root path where we write our logs.
-my $logpath = '/var/log/radius';
-logpath("$logpath");
+# Set up logfile directory
+# For test: /var/log/radius
+my $logdir = '/var/log/radius';
+# For Prod: /hinet/freeradius/var/log/radius/perl
+#my $logdir = '/hinet/freeradius/var/log/radius/perl';
+logpath("$logdir");
+
 # define root path where we read our configurations.
-my $confpath = '/Users/okischuang/Documents/Dev/freeradius/conf';
+# For Test: /Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf
+my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf';
+# For Prod: /hinet/freeradius/etc/raddb/perl/conf
+#my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
+
+# define FreeRADIUS dictionary directory.
+# For Test: /Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/share/freeradius
+my $dictpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/share/freeradius';
+# For Prod: /hinet/freeradius/share/freeradius
+#my $dictpath = '/hinet/freeradius/share/freeradius';
+
 # for storing redis server settings.
 my %redisEnv;
 # hash of storing Alu7750SR global settings.
 my %aluEnv;
+
 # global redis connection.
 my $redis_con;
 # calling sub to set up configuration environment variables.
@@ -32,11 +48,23 @@ setUpConfig();
 # calling sub to set up redis connection. setUpRedisConn() must be called after setUpConfig().
 setUpRedisConn();
 
+# Read RADIUS CoA config Key-Value pairs.
+my $port = $aluEnv{CoA}{PORT};
+my $secret = $aluEnv{CoA}{SECRET};
+my $timeout = $aluEnv{CoA}{TIMEOUT};
+my $fwdSlaProf = $aluEnv{CoA}{FWD_SLA_PROF};
+my $redSlaProf = $aluEnv{CoA}{RDT_SLA_PROF};
+my $fwdSubscProf = $aluEnv{CoA}{FWD_SUB_PROF};
+my $redSubscProf = $aluEnv{CoA}{RDT_SUB_PROF};
+
 sub accounting {
 	my $acct_status = $RAD_REQUEST{'Acct-Status-Type'};
-	my $key = $RAD_REQUEST{'Calling-Station-Id'};
+	my $key = normalizeMAC($RAD_REQUEST{'Calling-Station-Id'});
 
 	if ($acct_status eq 'Start') {
+		# To avoid sending CoA request to wrong subscriber, 
+		# we'll send CoA DISCONNECT to gateway first if the MAC addr has already existed in Redis server.
+		disconnect() if isKeyExists($key) == 1;
 		# Caching pre-auth subscriber information from Accounting packet to hash in redis server.
 		return RLM_MODULE_OK if setSubscHash($key) == 1;
 		return RLM_MODULE_NOOP if setSubscHash($key) == 0;
@@ -60,6 +88,8 @@ sub setUpConfig {
 		# do something risky...
 		read_config "$confpath/redis.cfg" => %redisEnv;
 		read_config "$confpath/alu.cfg" => %aluEnv;
+		# Load FreeRADIUS attributes from specified directory.
+		Authen::Radius->load_dictionary("$dictpath/dictionary");
 	};
 	if ($@) {
 		# handle failure...
@@ -123,20 +153,9 @@ sub radiusSimulation {
 }
 
 sub fillRADIUSVars {
-	my %test_data = $redis_con->hgetall('test_43807182c198');
-	
-	$RAD_REQUEST{'Alc-Subsc-ID'} = $test_data{'Alc-Subsc-ID'};
-	$RAD_REQUEST{'NAS-IP-Address'} = $test_data{'NAS-IP-Address'};
-	$RAD_REQUEST{'Framed-IP-Address'} = $test_data{'Framed-IP-Address'};
-	$RAD_REQUEST{'Alc-SLA-Prof-Str'} = $test_data{'Alc-SLA-Prof-Str'};
-	$RAD_REQUEST{'Alc-Subsc-Prof-Str'} = $test_data{'Alc-Subsc-Prof-Str'};
-	$RAD_REQUEST{'ADSL-Agent-Circuit-Id'} = $test_data{'ADSL-Agent-Circuit-Id'};
-	$RAD_REQUEST{'Acct-Start-Time'} = $test_data{'Acct-Start-Time'};
-	$RAD_REQUEST{'Acct-Session-Id'} = $test_data{'Acct-Session-Id'};
-	$RAD_REQUEST{'NAS-Port'} = $test_data{'NAS-Port'};
-	$RAD_REQUEST{'NAS-Port-Id'} = $test_data{'NAS-Port-Id'};
-	$RAD_REQUEST{'Acct-Status-Type'} = $test_data{'Acct-Status-Type'};
-	$RAD_REQUEST{'Calling-Station-Id'} = $redis_con->srandmember('rand_mac_list');
+	%RAD_REQUEST = $redis_con->hgetall('RAD_REQUEST_ACCT_REDIR_START');
+	%RAD_CHECK = $redis_con->hgetall('RAD_CHECK');
+	#$RAD_REQUEST{'Calling-Station-Id'} = $redis_con->srandmember('rand_mac_list');
 }
 
 sub testFlow {
@@ -237,6 +256,13 @@ sub getAllMembersFromSet {
 	return @members;
 }
 
+sub getAlcSubscID {
+	my $key = $_[0];
+	my $subscID;
+	$subscID = $redis_con->hget($key,'Alc-Subsc-ID-Str');
+	return $subscID;
+}
+
 sub removeMemFromSet {
 	return 0 if @_ != 2;
 	my $key = $_[0];
@@ -257,15 +283,33 @@ sub isMemberExist {
 	return 1 if $redis_con->sismember($key,$member) == 1;
 }
 
+sub isKeyExists {
+	my $key = $_[0];
+	$key = normalizeMAC($key);
+	return 1 if $redis_con->exists($key) == 1;
+}
+
+sub normalizeMAC {
+	my $macAddr = $_[0];
+	if($macAddr =~ /([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})/) {
+		$macAddr = lc("$1$2$3$4$5$6");
+	}
+}
+
 sub setSubscHash {
 	return 0 if @_ != 1;
 	my $key = $_[0];
 	eval {
 		# do something risky...
 		foreach my $attr ( keys %{$aluEnv{'CachedAVP'}}) {
-			my $ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr});
-			#print "add $attr ok." if $ret == 1;
-			print "add $attr fail." if $ret != 1;
+			if($aluEnv{'CachedAVP'}{"$attr"} eq '1') {
+				my $ret = 0;
+				print "adding $attr to cache...\n";
+				
+				print "value: $RAD_REQUEST{$attr}\n";
+				$ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr});
+				print "add $attr fail.\n" if $ret != 1;
+			}			
 		}
 	};
 	if ($@) {
@@ -275,6 +319,78 @@ sub setSubscHash {
 	}
 	print Dumper $redis_con->hgetall($key);
 	return 1;
+}
+
+sub getAuthenRadiusInstance {
+	my $host = $_[0];
+	my $secret = $_[1];
+	my $to = $_[2];
+	my $r;
+	eval {
+		# do something risky...
+		$r = new Authen::Radius(Host => $host, Secret => $secret, TimeOut => $to);
+	};
+	if ($@) {
+		# handle failure...
+		log_err("$@");
+		return 0;
+	}
+	return $r;
+}
+
+sub disconnect {
+	if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
+        log("coa","COA-FAIL","NAS-IP-Address Not Found");
+        return 0;
+    }
+    
+    my $host = "$RAD_REQUEST{'NAS-IP-Address'}:$port";
+    # New a RADIUS object.
+    my $r = getAuthenRadiusInstance($host,$secret,$timeout);
+    return 0 if $r == 0;
+
+    my $subscID;
+	$subscID = getAlcSubscID(normalizeMAC($RAD_REQUEST{'Calling-Station-Id'}));
+
+	$r->add_attributes (
+		{ Name => 'Alc-Subsc-ID-Str', Value => $subscID}
+	);
+
+	my $sent_attrs = "";
+    for $a ($r->get_attributes()) {
+        if($sent_attrs ne ""){
+                $sent_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
+        }
+        else{
+                $sent_attrs = "$a->{'Name'}=$a->{'Value'}"
+        }
+    }
+    log("coa", "SENT-COA-DICONNECT", "MAC CONFLICT", "$sent_attrs");
+
+	my $type;
+	$r->send_packet(DISCONNECT_REQUEST) and $type = $r->recv_packet();
+	
+	if($type == 41){
+		log("coa", "RECV-COA-DICONNECT-ACK", "MAC CONFLICT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
+		return 1;
+	}
+	elsif($type == 42){
+		my $response_attrs = "";
+        for $a ($r->get_attributes()) {
+            if($response_attrs ne ""){
+                    $response_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
+            }
+            else{
+                    $response_attrs = "$a->{'Name'}=$a->{'Value'}"
+            }
+        }
+		log("coa", "RECV-COA-DICONNECT-NAK", "MAC CONFLICT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
+		return 2;
+	}
+	else{
+		log("coa", "RECV-COA-DICONNECT-TIMEOUT", "MAC CONFLICT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
+		return 3;
+	}
 }
 
 ###### For Test #######
