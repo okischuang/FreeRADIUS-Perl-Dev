@@ -19,7 +19,7 @@ $socket = new IO::Socket::INET (
 		) or die "ERROR in Socket Creation : $!\n";
 	
 if($socket){
-	print "UDP Socket Set Up Successfully. I'm CoA Server NOW.";	
+	print "UDP Socket Set Up Successfully. I'm CoA Server NOW.\n";	
 }
 while(1)
 {
@@ -31,35 +31,44 @@ while(1)
 		#print "\nServer Sleeps for 5 seconds\n";
 		#sleep 15;
 		#print "\nServer wakes up!\n";
-		$socket -> recv($received_data,1024);
+		$socket -> recv($received_data,4096);
 		1;
 	};
-	print "Received Data Length:".length($received_data);	
+	print "Received Data Length:".length($received_data)."\n";
+        print "Received Data: $received_data\n";
+        eval {
+                # do something risky...
+                print "Send CoA-Ack\n";
+                $socket->send("CoA-Ack");
+        };
+        if ($@) {
+                # handle failure...
+        }
 	#next if $@;
 	#chomp($received_data = localtime);
 
 	# 
-	$peeraddress = $socket->peerhost();
-	$peerport = $socket->peerport();
-	my $decodeData = &parameterDecode($received_data,$key);
-	print "\n($peeraddress, $peerport) said : $decodeData \n";
+	# $peeraddress = $socket->peerhost();
+	# $peerport = $socket->peerport();
+	# my $decodeData = &parameterDecode($received_data,$key);
+	# print "\n($peeraddress, $peerport) said : $decodeData \n";
 	
-	my $isLI = '0';
-	if($decodeData =~ /(.+)&username=(.+)/){
-		if($2 eq '85211046' || '0919916043'){
-			$isLI = '1';
-		}
-	}
-	eval{
-		my $send_data = "$key?&ret=$isLI";
-		my $encodeData = &parameterEncode($send_data,$key);
-		print "\nPrepared encodeData: $encodeData\n";
-		print "\nServer Sleeps for 5 seconds\n";
-		sleep 5;
-		print "\nServer wakes up!\n";
-		$socket->send($encodeData);
-		1;
-	};
+	# my $isLI = '0';
+	# if($decodeData =~ /(.+)&username=(.+)/){
+	# 	if($2 eq '85211046' || '0919916043'){
+	# 		$isLI = '1';
+	# 	}
+	# }
+	# eval{
+	# 	my $send_data = "$key?&ret=$isLI";
+	# 	my $encodeData = &parameterEncode($send_data,$key);
+	# 	print "\nPrepared encodeData: $encodeData\n";
+	# 	print "\nServer Sleeps for 5 seconds\n";
+	# 	sleep 5;
+	# 	print "\nServer wakes up!\n";
+	# 	$socket->send($encodeData);
+	# 	1;
+	# };
 
 }
 
