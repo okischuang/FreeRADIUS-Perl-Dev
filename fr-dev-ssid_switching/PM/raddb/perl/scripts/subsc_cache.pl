@@ -59,8 +59,9 @@ my $redSubscProf = $aluEnv{CoA}{RDT_SUB_PROF};
 
 sub accounting {
 	my $acct_status = $RAD_REQUEST{'Acct-Status-Type'};
+	print "Origianl MAC: $RAD_REQUEST{'Calling-Station-Id'}\n";
 	my $key = normalizeMAC($RAD_REQUEST{'Calling-Station-Id'});
-
+	print "Normalized MAC: $key\n";
 	if ($acct_status eq 'Start') {
 		# To avoid sending CoA request to wrong subscriber, 
 		# we'll send CoA DISCONNECT to gateway first if the MAC addr has already existed in Redis server.
@@ -285,7 +286,8 @@ sub isMemberExist {
 
 sub isKeyExists {
 	my $key = $_[0];
-	$key = normalizeMAC($key);
+	print "isKeyExists: $key\n";
+	#$key = normalizeMAC($key);
 	return 1 if $redis_con->exists($key) == 1;
 }
 
@@ -294,6 +296,7 @@ sub normalizeMAC {
 	if($macAddr =~ /([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})/) {
 		$macAddr = lc("$1$2$3$4$5$6");
 	}
+	return $macAddr;
 }
 
 sub setSubscHash {
@@ -305,7 +308,7 @@ sub setSubscHash {
 			if($aluEnv{'CachedAVP'}{"$attr"} eq '1') {
 				my $ret = 0;
 				print "adding $attr to cache...\n";
-				
+
 				print "value: $RAD_REQUEST{$attr}\n";
 				$ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr});
 				print "add $attr fail.\n" if $ret != 1;
