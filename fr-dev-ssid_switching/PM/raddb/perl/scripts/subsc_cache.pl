@@ -308,9 +308,8 @@ sub setSubscHash {
 			if($aluEnv{'CachedAVP'}{"$attr"} eq '1') {
 				my $ret = 0;
 				print "adding $attr to cache...\n";
-
 				print "value: $RAD_REQUEST{$attr}\n";
-				$ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr});
+				$ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr}) if $RAD_REQUEST{$attr} ne '';
 				print "add $attr fail.\n" if $ret != 1;
 			}			
 		}
