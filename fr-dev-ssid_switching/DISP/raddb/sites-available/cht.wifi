@@ -746,7 +746,7 @@ post-auth {
                 ok
         }
         ## calling perl module to do Authorization & @hotspot Authentication
-	perl_proxy_auth_check
+		perl_proxy_auth_check
     }
 	update control {
 		#Perllog-File-Name := "%{FreeRADIUS-WiFi-Realm}_REPLY"
@@ -756,30 +756,33 @@ post-auth {
 	#get_realm
 	
 	if("%{request:EAP-Message}"){
+		#  save value of "Chargeable-User-Identity" in Class as format of "CUI=*"
+		save_user_identity
+
 		#### if this client is alcatel-lucent, use unlang policy to set qos reply
         #### if gateway is alcatel-lucent, it doesn't allow giving Access-Accept with *Session-Timeout* and *Alc-Relative-Session-Timeout* at the same time.
         if("%{client:Gateway-Type}" == "ALU") {
 			if("%{client:Is-NAT}" == "Yes"){
+				# update freeradius.internal VSA while we set tag 'Gateway-Type' in Clients.conf as "ALU"
+				# the VSA can help us identify if this ALU gateway is NAT mode.
 				update control {
 					Is-NAT := "Yes"
 				}
                 ## if this onfig *Is-NAT* of the client is set to 'Yes' that means it turns on NAT mode. Then we apply policy below.
                 alu.nat.eapsim.reply
             }
-            # if *Is-NAT* is set to 'No' that represents this gateway does not turn on NAT mode.
-            else{
-                eapsim_local_set_qos
-            }
+
+            # perl script for QoS control
+        	QoS_Ctrl
+
             # Calling perl script to check whether the MAC addr of eapsim request have been cached in Redis server.
-            # If yes, we will send CoA request to activate the subscriber by Alc-Subsc-ID.
+            # If yes, we will send CoA request to activate the subscriber by Alc-Subsc-ID-Str.
             perl_coa_eapsim
         }
-		else{
-        	#### The line below is a perl script which belong to Lite-GW for QoS control.
-            QoS_Ctrl
+        else{
+        	# perl script for QoS control
+        	QoS_Ctrl
         }
-		save_user_identity
-
 	}
 	else{
 		#  use perl to delete SBRCL in *CLASS*

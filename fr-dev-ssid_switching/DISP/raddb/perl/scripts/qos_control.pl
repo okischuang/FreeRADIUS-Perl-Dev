@@ -59,16 +59,32 @@ sub fillRADIUSVars {
 	%RAD_CHECK = $redis_con->hgetall('RAD_CHECK');
 }
 sub printDebugInfo {
-	print "Session-Timeout: $RAD_REPLY{'Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
-	print "Alc-Relative-Session-Timeout: $RAD_REPLY{'Alc-Relative-Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
-	print "Idle-Timeout: $RAD_REPLY{'Idle-Timeout'}\n";
-	print "WISPr-Bandwidth-Max-Up: $RAD_REPLY{'WISPr-Bandwidth-Max-Up'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
-	print "WISPr-Bandwidth-Max-Down: $RAD_REPLY{'WISPr-Bandwidth-Max-Down'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
-	print "Alc-Subscriber-QoS-Override: $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[0]\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
-	print "Alc-Subscriber-QoS-Override: $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[1]\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
-	print "Framed-Pool: $RAD_REPLY{'Framed-Pool'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
-	print "Alc-SLA-Prof-Str: $RAD_REPLY{'Alc-SLA-Prof-Str'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
-	print "Alc-Subsc-Prof-Str: $RAD_REPLY{'Alc-Subsc-Prof-Str'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
+	my $isEAPSIM = exists($RAD_REQUEST{'EAP-Message'}) ? 1 : 0;
+	if($isEAPSIM == 1){
+		print "****** This is EAP-Sim Scenario ******\n";
+		print "****** This is ALU Scenario ******\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+		print "****** This is Non-ALU Scenario ******\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+		print "****** This is NAT Scenario ******\n" if $RAD_CHECK{'Is-NAT'} eq 'Yes';
+		print "****** This is Non-NAT Scenario ******\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes';
+		print "Session-Timeout: $RAD_REPLY{'Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+		print "Alc-Relative-Session-Timeout: $RAD_REPLY{'Alc-Relative-Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+		print "Idle-Timeout: $RAD_REPLY{'Idle-Timeout'}\n";
+		print "WISPr-Bandwidth-Max-Up: $RAD_REPLY{'WISPr-Bandwidth-Max-Up'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+		print "WISPr-Bandwidth-Max-Down: $RAD_REPLY{'WISPr-Bandwidth-Max-Down'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
+		print "Alc-Subscriber-QoS-Override: $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[0]\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+		print "Alc-Subscriber-QoS-Override: $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[1]\n" if $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+		print "Framed-Pool: $RAD_REPLY{'Framed-Pool'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes' && $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+		print "Alc-SLA-Prof-Str: $RAD_REPLY{'Alc-SLA-Prof-Str'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes' && $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+		print "Alc-Subsc-Prof-Str: $RAD_REPLY{'Alc-Subsc-Prof-Str'}\n" if $RAD_CHECK{'Is-NAT'} ne 'Yes' && $RAD_CHECK{'Gateway-Type'} eq 'ALU';
+	}
+	else{
+		print "****** This is Non-EAP Scenario ******\n";
+		my $upRate = $RAD_REPLY{'WISPr-Bandwidth-Max-Up'} ? $RAD_REPLY{'WISPr-Bandwidth-Max-Up'} : $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[0];
+		my $downRate = $RAD_REPLY{'WISPr-Bandwidth-Max-Down'} ? $RAD_REPLY{'WISPr-Bandwidth-Max-Down'} : $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[1];
+		my $ito = $RAD_REPLY{'Idle-Timeout'};
+		my $sto = $RAD_REPLY{'Session-Timeout'} ? $RAD_REPLY{'Session-Timeout'} : $RAD_REPLY{'Alc-Relative-Session-Timeout'};
+		printf "Download Bandwidth: %s\nUpload Bandwidth: %s\nIdle-Timeout: %s\nSession-Timeout: %s\n", $upRate, $downRate, $ito, $sto;
+	}	
 }
 sub radiusSimulation {
 	# Simulate hash value in FreeRADIUS.
@@ -99,7 +115,7 @@ sub radiusSimulation {
 
 sub log_err {
 	my $errMsg = $_[0];
-	log("error","QoS_control","$errMsg");
+	log("perlErr","QoS_control","$errMsg");
 }
 
 sub setUpConfig {
@@ -145,6 +161,7 @@ sub setQoS {
 	if(%qos) {
 		my $realm_section = $RAD_REQUEST{'FreeRADIUS-WiFi-Realm'};
 		my $gw_type = $RAD_CHECK{'Gateway-Type'};
+		# decide whether the request is EAP by checking existence of 'EAP-Message'
 		my $isEAPSIM = exists($RAD_REQUEST{'EAP-Message'}) ? 1 : 0;
 		# if something goes wrong...even though it should not happend
 		if($realm_section eq "") {

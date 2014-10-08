@@ -29,14 +29,6 @@ use constant	RLM_MODULE_NOOP=>      7;#  /* module succeeded without doing anyth
 use constant	RLM_MODULE_UPDATED=>   8;#  /* OK (pairs modified) */
 use constant	RLM_MODULE_NUMCODES=>  9;#  /* How many return codes there are */
 
-# Same as src/include/radiusd.h
-use constant	L_DBG=>   1;
-use constant	L_AUTH=>  2;
-use constant	L_INFO=>  3;
-use constant	L_ERR=>   4;
-use constant	L_PROXY=> 5;
-use constant	L_ACCT=>  6;
-
 # Set up logfile directory
 # For test: /var/log/radius
 my $logdir = '/var/log/radius';
@@ -87,6 +79,7 @@ radiusSimulation();
 sub fillRADIUSVars {
 	%RAD_REQUEST = $redis_con->hgetall('RAD_REQUEST_AUTH_EAP');
 	%RAD_CHECK = $redis_con->hgetall('RAD_CHECK');
+	%RAD_REPLY = $redis_con->hgetall('RAD_REPLY_AUTH_EAP');
 }
 sub printDebugInfo {
 	print "Session-Timeout: $RAD_REPLY{'Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
@@ -124,7 +117,7 @@ sub radiusSimulation {
 
 sub log_err {
 	my $errMsg = $_[0];
-	log("error","coa","$errMsg");
+	log("perlErr","coa","$errMsg");
 }
 
 sub setUpConfig {
@@ -170,7 +163,6 @@ sub getAlcSubscID {
 
 sub isKeyExists {
 	my $key = $_[0];
-	$key = normalizeMAC($key);
 	return 1 if $redis_con->exists($key) == 1;
 }
 
@@ -179,6 +171,7 @@ sub normalizeMAC {
 	if($macAddr =~ /([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})/) {
 		$macAddr = lc("$1$2$3$4$5$6");
 	}
+	return $macAddr;
 }
 
 sub getAuthenRadiusInstance {
@@ -200,8 +193,14 @@ sub getAuthenRadiusInstance {
 
 # Function to handle post_auth
 sub post_auth {
+	# guarantee of existence of our key
+	log_err("key - Calling-Station-Id does not exist.") if !exists($RAD_REQUEST{'Calling-Station-Id'});
+	return RLM_MODULE_NOOP if !exists($RAD_REQUEST{'Calling-Station-Id'});
+	
 	# check if MAC address exists in Redis.
-	return RLM_MODULE_NOOP unless isKeyExists(normalizeMAC($RAD_REQUEST{'Calling-Station-Id'})) == 1;
+	my $key = normalizeMAC($RAD_REQUEST{'Calling-Station-Id'});
+	return RLM_MODULE_NOOP unless isKeyExists($key) == 1;
+
 	my $ret = 0;
 	$ret = forwarding();
 	if($ret == 0){return RLM_MODULE_NOOP;}
@@ -279,6 +278,7 @@ sub accounting {
         }
 }
 sub forwarding {
+	# guarantee that CoA Server IP must exists.
     if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
             log_err("COA-FAIL, NAS-IP-Address is not found");
             return 0;
@@ -352,7 +352,6 @@ sub forwarding {
 	
 	$r->add_attributes (
 		{ Name => 'Alc-Subsc-ID-Str', Value => $subscID},
-		{ Name => 'NAS-Port', Value => $RAD_REQUEST{'NAS-Port'}},
 		{ Name => 'User-Name', Value => $RAD_REQUEST{'User-Name'}},
 		{ Name => 'Alc-SLA-Prof-Str', Value => $fwdSlaProf},
 		{ Name => 'Alc-Subscriber-QoS-Override', Value => $upRate},

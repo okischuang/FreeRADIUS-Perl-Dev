@@ -298,7 +298,22 @@ sub normalizeMAC {
 	}
 	return $macAddr;
 }
-
+sub setKeyExpire {
+	my $key = $_[0];
+	my $expr = $_[1];
+	print "isn't numeric!!\n" if $expr !~ /^\d+$/;
+	return 0 if $expr !~ /^\d+$/;
+	eval {
+		# do something risky...
+		return 1 if $redis_con->expire($key, $expr) == 1;
+	};
+	if ($@) {
+		# handle failure...
+		log_err("$@");
+		return 0;
+	}
+	
+}
 sub setSubscHash {
 	return 0 if @_ != 1;
 	my $key = $_[0];
@@ -311,8 +326,9 @@ sub setSubscHash {
 				print "value: $RAD_REQUEST{$attr}\n";
 				$ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr}) if $RAD_REQUEST{$attr} ne '';
 				print "add $attr fail.\n" if $ret != 1;
-			}			
+			}
 		}
+		setKeyExpire($key, 'a99');
 	};
 	if ($@) {
 		# handle failure...

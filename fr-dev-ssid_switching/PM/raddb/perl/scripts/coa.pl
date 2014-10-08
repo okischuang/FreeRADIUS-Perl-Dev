@@ -13,7 +13,6 @@ use POSIX qw/strftime/;
 use Encode qw(encode decode);
 use Config::Std { def_sep => '=' };
 use Log::Lite qw(logpath log);
-#use Digest::MD5;
 
 #
 # This the remapping of return values
@@ -29,13 +28,6 @@ use constant	RLM_MODULE_NOOP=>      7;#  /* module succeeded without doing anyth
 use constant	RLM_MODULE_UPDATED=>   8;#  /* OK (pairs modified) */
 use constant	RLM_MODULE_NUMCODES=>  9;#  /* How many return codes there are */
 
-# Same as src/include/radiusd.h
-use constant	L_DBG=>   1;
-use constant	L_AUTH=>  2;
-use constant	L_INFO=>  3;
-use constant	L_ERR=>   4;
-use constant	L_PROXY=> 5;
-use constant	L_ACCT=>  6;
 
 # Set up logfile directory
 # For test: /var/log/radius
@@ -150,7 +142,7 @@ sub setUpRedisConn {
 		# try to get a connection from Redis server.
 		$redis_con = Redis->new(
 			server => "$s1_ip:$s1_port",
-			reconnect => 3,
+			reconnect => $s1_reconn,
 			name => 'conn_subsc_cache',
 		);
 	};
