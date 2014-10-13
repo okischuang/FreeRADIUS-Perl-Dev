@@ -83,7 +83,7 @@ sub printDebugInfo {
 		my $downRate = $RAD_REPLY{'WISPr-Bandwidth-Max-Down'} ? $RAD_REPLY{'WISPr-Bandwidth-Max-Down'} : $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[1];
 		my $ito = $RAD_REPLY{'Idle-Timeout'};
 		my $sto = $RAD_REPLY{'Session-Timeout'} ? $RAD_REPLY{'Session-Timeout'} : $RAD_REPLY{'Alc-Relative-Session-Timeout'};
-		printf "Download Bandwidth: %s\nUpload Bandwidth: %s\nIdle-Timeout: %s\nSession-Timeout: %s\n", $upRate, $downRate, $ito, $sto;
+		printf "Upload Bandwidth: %s\nDownload Bandwidth: %s\nIdle-Timeout: %s\nSession-Timeout: %s\n", $upRate, $downRate, $ito, $sto;
 	}	
 }
 sub radiusSimulation {
