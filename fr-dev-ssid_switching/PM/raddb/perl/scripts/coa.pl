@@ -38,7 +38,7 @@ logpath("$logdir");
 
 # define root path where we read our configurations.
 # For Test: /Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf
-my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf';
+my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/PM/raddb/perl/conf';
 # For Prod: /hinet/freeradius/etc/raddb/perl/conf
 #my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
 
@@ -77,8 +77,9 @@ my %RAD_CHECK;
 radiusSimulation();
 
 sub fillRADIUSVars {
-	%RAD_REQUEST = $redis_con->hgetall('RAD_REQUEST_AUTH_EAP');
+	%RAD_REQUEST = $redis_con->hgetall('RAD_REQUEST_AUTH_UAM');
 	%RAD_CHECK = $redis_con->hgetall('RAD_CHECK');
+	%RAD_REPLY = $redis_con->hgetall('RAD_REPLY_AUTH_UAM');
 }
 sub printDebugInfo {
 	print "Session-Timeout: $RAD_REPLY{'Session-Timeout'}\n" if $RAD_CHECK{'Gateway-Type'} ne 'ALU';
@@ -99,6 +100,12 @@ sub radiusSimulation {
 	print "===CoA Simulation Process START";
 	printf "NAS-IP-Address: %s | Calling-Station-Id: %s | User-Name: %s | Alc-Subsc-ID-Str: %s\n", 
 		$RAD_REQUEST{'NAS-IP-Address'},$RAD_REQUEST{'Calling-Station-Id'}, $RAD_REQUEST{'User-Name'}, getAlcSubscID(normalizeMAC($RAD_REQUEST{'Calling-Station-Id'}));
+	my $upRate = $RAD_REPLY{'WISPr-Bandwidth-Max-Up'} ? $RAD_REPLY{'WISPr-Bandwidth-Max-Up'} : $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[0];
+	my $downRate = $RAD_REPLY{'WISPr-Bandwidth-Max-Down'} ? $RAD_REPLY{'WISPr-Bandwidth-Max-Down'} : $RAD_REPLY{'Alc-Subscriber-QoS-Override'}[1];
+	my $ito = $RAD_REPLY{'Idle-Timeout'};
+	my $sto = $RAD_REPLY{'Session-Timeout'} ? $RAD_REPLY{'Session-Timeout'} : $RAD_REPLY{'Alc-Relative-Session-Timeout'};
+	printf "Upload Bandwidth: %s\nDownload Bandwidth: %s\nIdle-Timeout: %s\nSession-Timeout: %s\n", $upRate, $downRate, $ito, $sto;
+
 	my $ret = post_auth();
 	if($ret == 2) {
 		print "CoA succeeded!\n";
@@ -162,7 +169,6 @@ sub getAlcSubscID {
 
 sub isKeyExists {
 	my $key = $_[0];
-	$key = normalizeMAC($key);
 	return 1 if $redis_con->exists($key) == 1;
 }
 
@@ -171,6 +177,7 @@ sub normalizeMAC {
 	if($macAddr =~ /([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})/) {
 		$macAddr = lc("$1$2$3$4$5$6");
 	}
+	return $macAddr;
 }
 
 sub getAuthenRadiusInstance {
@@ -349,7 +356,7 @@ sub forwarding {
 		{ Name => 'Alc-Subscriber-QoS-Override', Value => $upRate},
 		{ Name => 'Alc-Subscriber-QoS-Override', Value => $downRate},
 		{ Name => 'Alc-Relative-Session-Timeout', Value => $fake_sto},
-		{ Namw => 'Acct-Interim-Interval', Value => $sto},
+		{ Name => 'Acct-Interim-Interval', Value => $sto},
 		{ Name => 'Idle-Timeout', Value => $ito}
 	);
 	# iterates every element of Class array out and adds it into attributes object.
@@ -376,7 +383,7 @@ sub forwarding {
 			$sent_attrs = "$a->{'Name'}=$a->{'Value'}"
 		}
 	}
-	log("coa", "SENT-COA-FWD", "$sent_attrs");
+	log("coa", "SENT-COA-FWD", "$RAD_REQUEST{'NAS-IP-Address'}", "$sent_attrs");
 
 	# send CoA packet to CoA server.
 	my $type;	
@@ -386,19 +393,19 @@ sub forwarding {
 	if($type == 44){
 		if($RAD_REPLY{'Alc-LI-Action'}) {
 			my $li_input = "Alc-Subsc-ID-Str=$subscID,Alc-LI-Action=$RAD_REPLY{'Alc-LI-Action'},Alc-LI-Destination=$li_Dest";
-			log("coa", "SENT-COA-LI", "$RAD_REQUEST{'Calling-Station-Id'}", "$li_input");
+			log("coa", "SENT-COA-LI", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$li_input");
 			my $li_output = &call_radclient($li_input,$host,"coa","$secret");
 			if($li_output == 1) {
-				log("coa", "RECV-COA-LI-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+				log("coa", "RECV-COA-LI-ACK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 			}
 			elsif($li_output == 2) {
-				log("coa", "RECV-COA-LI-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+				log("coa", "RECV-COA-LI-NAK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 			}
 			else{
-				log("coa", "RECV-COA-LI-FAIL", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+				log("coa", "RECV-COA-LI-FAIL", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 			}
 		}
-		log("coa", "RECV-COA-FWD-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+		log("coa", "RECV-COA-FWD-ACK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 		return 1;
 	}
 	elsif($type == 45){
@@ -411,11 +418,11 @@ sub forwarding {
 	                $response_attrs = "$a->{'Name'}=$a->{'Value'}"
 	        }
 	    }
-		log("coa", "RECV-COA-FWD-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$response_attrs");
+		log("coa", "RECV-COA-FWD-NAK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$response_attrs");
 		return 2;
 	}
 	else {
-		log("coa", "RECV-COA-FWD-TIMEOUT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+		log("coa", "RECV-COA-FWD-TIMEOUT", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 		return 3;
 	}
 }
@@ -451,13 +458,13 @@ sub redirecting {
                 $sent_attrs = "$a->{'Name'}=$a->{'Value'}"
         }
     }
-    log("coa", "SENT-COA-RDT", "$sent_attrs");
+    log("coa", "SENT-COA-RDT", "$RAD_REQUEST{'NAS-IP-Address'}", "$sent_attrs");
 
 	my $type;	
 	$r->send_packet(COA_REQUEST) and $type = $r->recv_packet();
 	
 	if($type == 44){
-		log("coa", "RECV-COA-RDT-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");	
+		log("coa", "RECV-COA-RDT-ACK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");	
 		return 1;
 	}
 	elsif($type == 45){
@@ -470,11 +477,11 @@ sub redirecting {
                     $response_attrs = "$a->{'Name'}=$a->{'Value'}"
             }
         }
-		log("coa", "RECV-COA-RDT-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
+		log("coa", "RECV-COA-RDT-NAK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
 		return 2;
 	}
 	else{
-		log("coa", "RECV-COA-RDT-TIMEOUT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
+		log("coa", "RECV-COA-RDT-TIMEOUT", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
 		return 3;
 	}
 }	
@@ -506,13 +513,13 @@ sub disconnect {
                 $sent_attrs = "$a->{'Name'}=$a->{'Value'}"
         }
     }
-    log("coa", "SENT-COA-DICONNECT", "$sent_attrs");
+    log("coa", "SENT-COA-DICONNECT", "$RAD_REQUEST{'NAS-IP-Address'}", "$sent_attrs");
 
 	my $type;
 	$r->send_packet(DISCONNECT_REQUEST) and $type = $r->recv_packet();
 	
 	if($type == 41){
-		log("coa", "RECV-COA-DICONNECT-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
+		log("coa", "RECV-COA-DICONNECT-ACK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
 		return 1;
 	}
 	elsif($type == 42){
@@ -525,11 +532,11 @@ sub disconnect {
                     $response_attrs = "$a->{'Name'}=$a->{'Value'}"
             }
         }
-		log("coa", "RECV-COA-DICONNECT-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
+		log("coa", "RECV-COA-DICONNECT-NAK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
 		return 2;
 	}
 	else{
-		log("coa", "RECV-COA-DICONNECT-TIMEOUT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
+		log("coa", "RECV-COA-DICONNECT-TIMEOUT", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
 		return 3;
 	}
 }

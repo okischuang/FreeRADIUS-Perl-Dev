@@ -219,64 +219,6 @@ sub post_auth {
 	else{return RLM_MODULE_NOOP;}
 }
 
-sub accounting {
-	if($RAD_REQUEST{'User-Name'} eq 'weblogout') {
-		my $ret = 0;
-		$ret = &redirecting;
-		if($ret == 0){return RLM_MODULE_NOOP;}
-		elsif($ret == 1){
-			$RAD_REPLY{'Reply-Message'} = "0";
-			return RLM_MODULE_OK;
-		}
-		elsif($ret == 2){
-			$RAD_REPLY{'Reply-Message'} = "99";
-			return RLM_MODULE_OK;
-		}
-		elsif($ret == 3){
-			$RAD_REPLY{'Reply-Message'} = "99";
-			return RLM_MODULE_OK;
-		}
-		else{return RLM_MODULE_NOOP;}
-	}
-	elsif($RAD_REQUEST{'User-Name'} eq 'disconnect') {
-		my $ret = 0;
-		$ret = &disconnect;
-		if($ret == 0){return RLM_MODULE_NOOP;}
-		elsif($ret == 1){
-			$RAD_REPLY{'Reply-Message'} = "0";
-			return RLM_MODULE_OK;
-		}
-		elsif($ret == 2){
-			$RAD_REPLY{'Reply-Message'} = "99";
-			return RLM_MODULE_OK;
-		}
-		elsif($ret == 3){
-			$RAD_REPLY{'Reply-Message'} = "99";
-			return RLM_MODULE_OK;
-		}
-		else{return RLM_MODULE_NOOP;}
-
-	}
-	elsif($RAD_REQUEST{'Acct-Status-Type'} eq 'Interim-Update' && $RAD_REQUEST{'Alc-SLA-Prof-Str'} eq $fwdSlaProf) {
-		my $ret = 0;
-		$ret = &redirecting;
-		if($ret == 0){return RLM_MODULE_NOOP;}
-		elsif($ret == 1){
-			$RAD_REPLY{'Reply-Message'} = "0";
-			return RLM_MODULE_OK;
-		}
-		elsif($ret == 2){
-			$RAD_REPLY{'Reply-Message'} = "99";
-			return RLM_MODULE_OK;
-		}
-		elsif($ret == 3){
-			$RAD_REPLY{'Reply-Message'} = "99";
-			return RLM_MODULE_OK;
-		}
-		else{return RLM_MODULE_NOOP;}
-
-        }
-}
 sub forwarding {
 	# guarantee that CoA Server IP must exists.
     if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
@@ -382,7 +324,7 @@ sub forwarding {
 			$sent_attrs = "$a->{'Name'}=$a->{'Value'}"
 		}
 	}
-	log("coa", "SENT-COA-FWD", "$sent_attrs");
+	log("coa", "SENT-COA-FWD", "$RAD_REQUEST{'NAS-IP-Address'}", "$sent_attrs");
 
 	my $type;	
 	$r->send_packet(COA_REQUEST, 3) and $type = $r->recv_packet();
@@ -390,19 +332,19 @@ sub forwarding {
 	if($type == 44){
 		if($RAD_REPLY{'Alc-LI-Action'}) {
 			my $li_input = "Alc-Subsc-ID-Str=$subscID,Alc-LI-Action=$RAD_REPLY{'Alc-LI-Action'},Alc-LI-Destination=$li_Dest";
-			log("coa", "SENT-COA-LI", "$RAD_REQUEST{'Calling-Station-Id'}", "$li_input");
+			log("coa", "SENT-COA-LI", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$li_input");
 			my $li_output = &call_radclient($li_input,$host,"coa","$secret");
 			if($li_output == 1) {
-				log("coa", "RECV-COA-LI-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+				log("coa", "RECV-COA-LI-ACK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 			}
 			elsif($li_output == 2) {
-				log("coa", "RECV-COA-LI-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+				log("coa", "RECV-COA-LI-NAK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 			}
 			else{
-				log("coa", "RECV-COA-LI-FAIL", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+				log("coa", "RECV-COA-LI-FAIL", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 			}
 		}
-		log("coa", "RECV-COA-FWD-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
+		log("coa", "RECV-COA-FWD-ACK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 		return 1;
 	}
 	elsif($type == 45){
@@ -415,127 +357,11 @@ sub forwarding {
 	                $response_attrs = "$a->{'Name'}=$a->{'Value'}"
 	        }
 	    }
-		log("coa", "RECV-COA-FWD-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$response_attrs");
+		log("coa", "RECV-COA-FWD-NAK", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$response_attrs");
 		return 2;
 	}
 	else {
-		log("coa", "RECV-COA-FWD-TIMEOUT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
-		return 3;
-	}
-}
-
-sub redirecting {
-	if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
-        log("coa","COA-FAIL","NAS-IP-Address Not Found");
-        return 0;
-    }
-    my $host = "$RAD_REQUEST{'NAS-IP-Address'}:$port";
-    # New a RADIUS object.
-    my $r = getAuthenRadiusInstance($host,$secret,$timeout);
-    return 0 if $r == 0;
-	my $fake_sto = 86400; # use of keeping IP of subscriber host on GW in a day.
-	
-	my $subscID;
-	$subscID = getAlcSubscID(normalizeMAC($RAD_REQUEST{'Calling-Station-Id'}));
-	$subscID = $RAD_REQUEST{'Alc-Subsc-ID-Str'} if $subscID eq '';
-
-	# set up AVPs which we need for sending CoA. The key is 'Alc-Subsc-ID-Str'.
-	$r->add_attributes (
-		{ Name => 'Alc-Subsc-ID-Str', Value => $subscID},
-		{ Name => 'Acct-Interim-Interval', Value => $fake_sto},
-		{ Name => 'Alc-SLA-Prof-Str', Value => $redSlaProf}
-	);
-
-	# concatenate each AVP to a string for log printing.
-	my $sent_attrs = "";
-    for $a ($r->get_attributes()) {
-        if($sent_attrs ne ""){
-                $sent_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
-        }
-        else{
-                $sent_attrs = "$a->{'Name'}=$a->{'Value'}"
-        }
-    }
-    log("coa", "SENT-COA-RDT", "$sent_attrs");
-
-	my $type;	
-	$r->send_packet(COA_REQUEST) and $type = $r->recv_packet();
-	
-	if($type == 44){
-		log("coa", "RECV-COA-RDT-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");	
-		return 1;
-	}
-	elsif($type == 45){
-		my $response_attrs = "";
-        for $a ($r->get_attributes()) {
-            if($response_attrs ne ""){
-                    $response_attrs .= "$a->{'Name'}=\t$a->{'Value'}";
-            }
-            else{
-                    $response_attrs = "$a->{'Name'}=$a->{'Value'}"
-            }
-        }
-		log("coa", "RECV-COA-RDT-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
-		return 2;
-	}
-	else{
-		log("coa", "RECV-COA-RDT-TIMEOUT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
-		return 3;
-	}
-}	
-
-sub disconnect {
-	if($RAD_REQUEST{'NAS-IP-Address'} eq ""){
-        log("coa","COA-FAIL","NAS-IP-Address Not Found");
-        return 0;
-    }
-    
-    my $host = "$RAD_REQUEST{'NAS-IP-Address'}:$port";
-    # New a RADIUS object.
-    my $r = getAuthenRadiusInstance($host,$secret,$timeout);
-    return 0 if $r == 0;
-
-    my $subscID;
-	$subscID = getAlcSubscID(normalizeMAC($RAD_REQUEST{'Calling-Station-Id'}));
-	$subscID = $RAD_REQUEST{'Alc-Subsc-ID-Str'} if $subscID eq '';
-
-	$r->add_attributes (
-		{ Name => 'Alc-Subsc-ID-Str', Value => $subscID}
-	);
-
-	my $sent_attrs = "";
-    for $a ($r->get_attributes()) {
-        if($sent_attrs ne ""){
-                $sent_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
-        }
-        else{
-                $sent_attrs = "$a->{'Name'}=$a->{'Value'}"
-        }
-    }
-    log("coa", "SENT-COA-DICONNECT", "$sent_attrs");
-
-	my $type;
-	$r->send_packet(DISCONNECT_REQUEST) and $type = $r->recv_packet();
-	
-	if($type == 41){
-		log("coa", "RECV-COA-DICONNECT-ACK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
-		return 1;
-	}
-	elsif($type == 42){
-		my $response_attrs = "";
-        for $a ($r->get_attributes()) {
-            if($response_attrs ne ""){
-                    $response_attrs .= "\t$a->{'Name'}=$a->{'Value'}";
-            }
-            else{
-                    $response_attrs = "$a->{'Name'}=$a->{'Value'}"
-            }
-        }
-		log("coa", "RECV-COA-DICONNECT-NAK", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID", "$response_attrs");
-		return 2;
-	}
-	else{
-		log("coa", "RECV-COA-DICONNECT-TIMEOUT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
+		log("coa", "RECV-COA-FWD-TIMEOUT", "$RAD_REQUEST{'NAS-IP-Address'}", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}");
 		return 3;
 	}
 }
