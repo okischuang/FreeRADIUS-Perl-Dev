@@ -4,8 +4,14 @@ HMSET RAD_REQUEST_ACCT_REDIR_START Alc-Subsc-ID "43:80:71:82:c1:98|2/2/9:2104.10
 
 HMSET RAD_REQUEST_AUTH_EAP User-Name "144123123123@wlan.mnc092.mcc466.3gppnetwork.org" NAS-IP-Address "168.95.179.2" Calling-Station-Id "43:80:71:82:c1:98" NAS-Port "100" EAP-Message "aaaabbccccdddd12345" FreeRADIUS-WiFi-Realm "wlan.mnc092.mcc466.3gppnetwork.org"
 
+HMSET RAD_REQUEST_AUTH_UAM User-Name "0919123123@emome.net" NAS-IP-Address "168.95.179.71" Calling-Station-Id "11:81:ab:82:c1:55" NAS-Port "100" 
+
 HMSET RAD_CHECK Is-NAT "Yes" Gateway-Type "ALU"
 
 HMSET RAD_REQUEST_AUTH_COA User-Name ""
 
 HMSET RAD_REPLY_AUTH_EAP Class "CUI=886919916043" 
+
+HMSET RAD_REPLY_AUTH_UAM Class "emomeCL=0919123123 SVC=AA" WISPr-Bandwidth-Max-Up "20971000" WISPr-Bandwidth-Max-Down "5420000" Idle-Timeout "1800" Session-Timeout "14400"
+
+HMSET RAD_REQUEST_ACCT_REDIR_START Alc-Subsc-ID-Str "11:81:ab:82:c1:55|2/2/9:2104.101" NAS-IP-Address "168.95.179.2" Framed-IP-Address "100.64.54.250" Alc-SLA-Prof-Str "CHT_SLA_REDIR" Alc-Subsc-Prof-Str "CHT_SUB" ADSL-Agent-Circuit-Id "TPDB-GW-2542|227104|2/2/7:781.0" Acct-Start-Time "2014-09-26 15:12.000" Acct-Session-Id "GGGG123123" NAS-Port "345520229" Calling-Station-Id "11:81:ab:82:c1:55" Acct-Status-Type "Start" NAS-Port-Id "2/2/9:2104.101"
