@@ -7,8 +7,9 @@ use vars qw(%RAD_REQUEST %RAD_CHECK);
 use Redis;
 use Authen::Radius;
 use Config::Std { def_sep => '=' };
-#use lib '/home/okis/perl5/lib/perl5';
+use lib '/home/okis/perl5/lib/perl5';
 use Log::Lite qw(logpath log);
+use Errno qw(ETIMEDOUT EWOULDBLOCK ECONNREFUSED);
 use Data::Dumper;
 
 # constant of FreeRADIUS module returned value
@@ -21,12 +22,11 @@ use constant RLM_MODULE_UPDATED	=>	8;
 # For test: /var/log/radius
 my $logdir = '/var/log/radius';
 # For Prod: /hinet/freeradius/var/log/radius/perl
-#my $logdir = '/hinet/freeradius/var/log/radius/perl';
-logpath("$logdir");
+#my $logdir = '/hinet/freeradius/var/log/radius/perl/';
 
 # define root path where we read our configurations.
 # For Test: /Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf
-my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/DISP/raddb/perl/conf';
+my $confpath = '/Users/okischuang/Documents/Dev/fr-dev-ssid_switching/PM/raddb/perl/conf';
 # For Prod: /hinet/freeradius/etc/raddb/perl/conf
 #my $confpath = '/hinet/freeradius/etc/raddb/perl/conf';
 
@@ -41,12 +41,17 @@ my %redisEnv;
 # hash of storing Alu7750SR global settings.
 my %aluEnv;
 
-# global redis connection.
-my $redis_con;
+my $redis_con_delete;
+my $redis_con_write;
+my $redis_con_read;
+
 # calling sub to set up configuration environment variables.
 setUpConfig();
+
 # calling sub to set up redis connection. setUpRedisConn() must be called after setUpConfig().
-setUpRedisConn();
+$redis_con_delete = setUpRedisConn('subsc_delete');
+$redis_con_write = setUpRedisConn('subsc_write');
+$redis_con_read = setUpRedisConn('subsc_read');
 
 # Read RADIUS CoA config Key-Value pairs.
 my $port = $aluEnv{CoA}{PORT};
@@ -59,13 +64,12 @@ my $redSubscProf = $aluEnv{CoA}{RDT_SUB_PROF};
 
 sub accounting {
 	my $acct_status = $RAD_REQUEST{'Acct-Status-Type'};
-	print "Origianl MAC: $RAD_REQUEST{'Calling-Station-Id'}\n";
 	my $key = normalizeMAC($RAD_REQUEST{'Calling-Station-Id'});
-	print "Normalized MAC: $key\n";
 	if ($acct_status eq 'Start') {
 		# To avoid sending CoA request to wrong subscriber, 
 		# we'll send CoA DISCONNECT to gateway first if the MAC addr has already existed in Redis server.
-		disconnect() if isKeyExists($key) == 1;
+		print "isKeyDuplicate: ".isKeyDuplicate($key)."\n";
+		disconnect() if isKeyExists($key) == 1 && isKeyDuplicate($key) != 1;
 		# Caching pre-auth subscriber information from Accounting packet to hash in redis server.
 		return RLM_MODULE_OK if setSubscHash($key) == 1;
 		return RLM_MODULE_NOOP if setSubscHash($key) == 0;
@@ -81,7 +85,14 @@ sub accounting {
 
 sub log_err {
 	my $errMsg = $_[0];
-	log("error","subsc_cache","$errMsg");
+	logpath("$logdir/perlErr");
+	log("perlErr","subsc_cache","$errMsg");
+}
+
+sub log_debug {
+	my $errMsg = $_[0];
+	logpath("$logdir/debug");
+	log("debug","subsc_cache","$errMsg");
 }
 
 sub setUpConfig {
@@ -99,22 +110,38 @@ sub setUpConfig {
 }
 
 sub setUpRedisConn {
-	my $s1_ip = $redisEnv{'Server1'}{'host'};
-	my $s1_port = $redisEnv{'Server1'}{'port'};
-	my $s1_reconn = $redisEnv{'Server1'}{'reconnect'};
+	my $name = $_[0] ? $_[0] : "conn_subsc_cache";
+	# redis connection.
+	my $redis_con;
+	my $s1_ip = $redisEnv{'CacheServer1'}{'host'};
+	my $s1_port = $redisEnv{'CacheServer1'}{'port'};
+	my $s1_reconn = $redisEnv{'CacheServer1'}{'reconnect'};
+	my $read_timeout = $redisEnv{'CacheServer1'}{'read_timeout'};
+	my $write_timeout = $redisEnv{'CacheServer1'}{'write_timeout'};
+	my $cnx_timeout = $redisEnv{'CacheServer1'}{'cnx_timeout'};
+	my $debug = $redisEnv{'CacheServer1'}{'debug'};
+
 	eval {
 		# try to get a connection from Redis server.
 		$redis_con = Redis->new(
 			server => "$s1_ip:$s1_port",
-			reconnect => 3,
-			name => 'conn_subsc_cache',
+			reconnect => $s1_reconn,
+			name => $name,
+			cnx_timeout => $cnx_timeout,
+			read_timeout => $read_timeout,
+			write_timeout => $write_timeout,
+			debug => $debug,
+			#no_auto_connect_on_new => 1,
 		);
+		log_debug("Starting to connect server...");
+		#sleep 8;
 	};
 	if ($@) {
 		# handle failure...
-		log_err("$@");
+		log_err("setUpRedisConn() - $@");
 		# try to connect Server2
 	}
+	return $redis_con;
 }
 
 sub checkInput {
@@ -140,7 +167,7 @@ sub radiusSimulation {
 		# body...
 		if ($RAD_REQUEST{'Acct-Status-Type'} eq 'Start') {
 			# body...
-			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been added into hash".Dumper $redis_con->hgetall($RAD_REQUEST{'Calling-Station-Id'})."\n";
+			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been added into hash";
 		} else {
 			# else...
 			print "subscriber-$RAD_REQUEST{'Calling-Station-Id'} has been removed.\n";
@@ -151,11 +178,27 @@ sub radiusSimulation {
 	}
 	print "\n";
 	print "===MAC Cached Simulation Process END\n";
+	sleep 10;
 }
 
 sub fillRADIUSVars {
-	%RAD_REQUEST = $redis_con->hgetall('RAD_REQUEST_ACCT_REDIR_START');
-	%RAD_CHECK = $redis_con->hgetall('RAD_CHECK');
+	eval {
+		# do something risky...
+		#$redis_con->connect();
+		%RAD_REQUEST = $redis_con_read->hgetall('RAD_REQUEST_ACCT_REDIR_START');
+		%RAD_CHECK = $redis_con_read->hgetall('RAD_CHECK');
+	};
+	if ($@) {
+		# handle failure...
+		print "fillRADIUSVars() - error\n";
+		if(0+$! == ETIMEDOUT || 0+$! == EWOULDBLOCK || 0+$! == ECONNREFUSED) {
+			print 0+$!;
+			print "Timeout!!\n" if 0+$! == ETIMEDOUT;
+			print "Connection Refused!!\n" if 0+$! == ECONNREFUSED;
+		}
+		exit;
+	}
+	
 	#$RAD_REQUEST{'Calling-Station-Id'} = $redis_con->srandmember('rand_mac_list');
 }
 
@@ -189,7 +232,7 @@ sub addRandElem2Set {
 	foreach (1..$num){
 		my $umac = genRandomMAC('-');
 		print "add member: $umac\n";
-		$redis_con->sadd($key, $umac);
+		$redis_con_write->sadd($key, $umac);
 	}
 }
 
@@ -197,7 +240,7 @@ sub addSubsc2Set {
 	return 0 if @_ != 2;
 	my $key = $_[0];
 	my $member = $_[1];
-	return 1 if $redis_con->sadd($key,$member) == 1;
+	return 1 if $redis_con_write->sadd($key,$member) == 1;
 }
 
 sub genRandomMAC {
@@ -229,7 +272,7 @@ sub genMACList2Set {
 		# do something risky...
 		for(my $i=0;$i<$num;$i++) {
 			print "MAC: ".genRandomMAC('','lc')."\n";
-			$redis_con->sadd($key, genRandomMAC('','lc'));	
+			$redis_con_write->sadd($key, genRandomMAC('','lc'));	
 		}
 		return 1;
 	};
@@ -245,7 +288,7 @@ sub getRandomMember {
 	return 0 if @_ != 1;
 	my $key = $_[0];
 	my $randMember;
-	$randMember = $redis_con->srandmember($key);
+	$randMember = $redis_con_read->srandmember($key);
 	return $randMember;
 }
 
@@ -253,14 +296,21 @@ sub getAllMembersFromSet {
 	return 0 if @_ != 1;
 	my $key = $_[0];
 	my @members;
-	@members = $redis_con->smembers($key);
+	@members = $redis_con_read->smembers($key);
 	return @members;
 }
 
 sub getAlcSubscID {
 	my $key = $_[0];
-	my $subscID;
-	$subscID = $redis_con->hget($key,'Alc-Subsc-ID-Str');
+	my $subscID = '';
+	eval {
+		# do something risky...
+		$subscID = $redis_con_read->hget($key,'Alc-Subsc-ID-Str');
+	};
+	if ($@) {
+		# handle failure...
+		log_err("getAlcSubscID() - $@");
+	}
 	return $subscID;
 }
 
@@ -268,74 +318,135 @@ sub removeMemFromSet {
 	return 0 if @_ != 2;
 	my $key = $_[0];
 	my $member = $_[1];
-	return 1 if $redis_con->srem($key,$member) == 1;
+	return 1 if $redis_con_write->srem($key,$member) == 1;
 }
 
 sub delKey {
 	return 0 if @_ != 1;
 	my $key = $_[0];
-	return 1 if $redis_con->del($key) == 1;
+	my $ret = 0;
+	eval {
+		# do something risky...
+		# if del is executed successfully, it should return integer 1.
+		$ret = $redis_con_delete->del($key);
+	};
+	if ($@) {
+		# handle failure...
+		log_err("fail to delete key $key - $@");
+		# try to new another client connection to redis and retry the command.
+		eval {
+			# do something risky...
+			my $redis_con_temp = setUpRedisConn('redis_con_temp');
+			$ret = $redis_con_temp->del($key);
+		};
+		if ($@) {
+			# handle failure...
+			log_err("fail to delete key $key again - $@");
+		}
+	}
+	return $ret;
 }
 
 sub isMemberExist {
 	return 0 if @_ != 2;
 	my $key = $_[0];
 	my $member = $_[1];
-	return 1 if $redis_con->sismember($key,$member) == 1;
+	return 1 if $redis_con_read->sismember($key,$member) == 1;
 }
 
 sub isKeyExists {
+	return 0 if @_ != 1;
 	my $key = $_[0];
-	print "isKeyExists: $key\n";
-	#$key = normalizeMAC($key);
-	return 1 if $redis_con->exists($key) == 1;
+	my $ret = 0;
+	eval {
+		# do something risky...
+		# if exists is executed successfully, it should return integer 1.
+		$ret = $redis_con_read->exists($key);
+	};
+	if ($@) {
+		# handle failure...
+		log_err("isKeyExists() - $@");
+	}
+	return $ret;
 }
 
+sub isKeyDuplicate {
+	return 0 if @_ != 1;
+	my $key = $_[0];
+	my $ret = 0;
+	my $acctid = $RAD_REQUEST{'Acct-Session-Id'};
+	eval {
+		# do something risky...
+		my $cachedAcctId;
+		$cachedAcctId = $redis_con_read->hget($key,'Acct-Session-Id');
+		$ret = 1 if "$acctid" eq "$cachedAcctId" && "$cachedAcctId" ne '';
+		$ret = 0 if "$acctid" ne "$cachedAcctId" || "$cachedAcctId" eq '';
+	};
+	if ($@) {
+		# handle failure...
+		log_err("fail to check Acct-Session-Id of key $key duplicated - $@");
+		$ret = 0;
+	}
+	return $ret;
+}
 sub normalizeMAC {
 	my $macAddr = $_[0];
 	if($macAddr =~ /([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})[^0-9a-f]?([0-9a-f]{2})/) {
 		$macAddr = lc("$1$2$3$4$5$6");
 	}
+	else{
+		log_err("The input doesn't match the regex of MAC format");
+	}
 	return $macAddr;
 }
+
 sub setKeyExpire {
 	my $key = $_[0];
 	my $expr = $_[1];
-	print "isn't numeric!!\n" if $expr !~ /^\d+$/;
 	return 0 if $expr !~ /^\d+$/;
+	my $ret = 0;
 	eval {
-		# do something risky...
-		return 1 if $redis_con->expire($key, $expr) == 1;
+		# set expire time of this key
+		# if expire is executed successfully, it should return integer 1.
+		$ret = $redis_con_write->expire($key, $expr);
 	};
-	if ($@) {
+	if($@){
 		# handle failure...
-		log_err("$@");
+		log_err("setKeyExpire() - $@");
 		return 0;
 	}
-	
+	return $ret;
 }
+
 sub setSubscHash {
 	return 0 if @_ != 1;
 	my $key = $_[0];
 	eval {
+		# wrap all commands into a transaction for execution.
+		$redis_con_write->multi();
 		# do something risky...
 		foreach my $attr ( keys %{$aluEnv{'CachedAVP'}}) {
 			if($aluEnv{'CachedAVP'}{"$attr"} eq '1') {
 				my $ret = 0;
-				print "adding $attr to cache...\n";
-				print "value: $RAD_REQUEST{$attr}\n";
-				$ret = $redis_con->hset($key, $attr => $RAD_REQUEST{$attr}) if $RAD_REQUEST{$attr} ne '';
-				print "add $attr fail.\n" if $ret != 1;
-			}
+				eval {
+					# do something risky...
+					$ret = $redis_con_write->hset($key, $attr => $RAD_REQUEST{$attr}) if defined($RAD_REQUEST{$attr});
+					log_err("setSubscHash() - Error at calling hset($key,$attr=>$RAD_REQUEST{$attr})") if $ret ne 'QUEUED';
+				};
+				if ($@) {
+					# handle failure...
+					log_err("fail to add avp $attr - $@");
+				}
+			}			
 		}
-		setKeyExpire($key, 'a99');
+		$redis_con_write->exec();
+		setKeyExpire($key, 86400);
 	};
 	if ($@) {
 		# handle failure...
-		log_err("$@");
+		log_err("setSubscHash() - $@");
 		return 0;
 	}
-	print Dumper $redis_con->hgetall($key);
 	return 1;
 }
 
@@ -361,7 +472,7 @@ sub disconnect {
         log("coa","COA-FAIL","NAS-IP-Address Not Found");
         return 0;
     }
-    
+    logpath("$logdir/coa");
     my $host = "$RAD_REQUEST{'NAS-IP-Address'}:$port";
     # New a RADIUS object.
     my $r = getAuthenRadiusInstance($host,$secret,$timeout);
@@ -369,7 +480,7 @@ sub disconnect {
 
     my $subscID;
 	$subscID = getAlcSubscID(normalizeMAC($RAD_REQUEST{'Calling-Station-Id'}));
-
+	return 0 if $subscID eq '';
 	$r->add_attributes (
 		{ Name => 'Alc-Subsc-ID-Str', Value => $subscID}
 	);
@@ -388,11 +499,11 @@ sub disconnect {
 	my $type;
 	$r->send_packet(DISCONNECT_REQUEST) and $type = $r->recv_packet();
 	
-	if($type == 41){
+	if(defined($type) && $type == 41){
 		log("coa", "RECV-COA-DICONNECT-ACK", "MAC CONFLICT", "$RAD_REQUEST{'Calling-Station-Id'}", "$RAD_REQUEST{'User-Name'}", "$subscID");
 		return 1;
 	}
-	elsif($type == 42){
+	elsif(defined($type) && $type == 42){
 		my $response_attrs = "";
         for $a ($r->get_attributes()) {
             if($response_attrs ne ""){
@@ -414,9 +525,5 @@ sub disconnect {
 ###### For Test #######
 my %RAD_REQUEST;
 my %RAD_CHECK;
-#die "INPUT: -r[random MAC]|KEY|MAC[must give without -r]|Acct-Status-Type\n" if scalar @ARGV < 3;
 radiusSimulation();
 #######################
-
-=setUpRedisConn
-=END
